@@ -28,7 +28,7 @@
 #include "content/common/gpu/media/dxva_video_decode_accelerator.h"
 #elif defined(OS_MACOSX)
 #include "content/common/gpu/media/vt_video_decode_accelerator.h"
-#elif defined(OS_CHROMEOS) && defined(ARCH_CPU_ARMEL) && defined(USE_X11)
+#elif (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(ARCH_CPU_ARMEL) && defined(USE_X11)
 #include "content/common/gpu/media/v4l2_video_decode_accelerator.h"
 #include "content/common/gpu/media/v4l2_video_device.h"
 #elif defined(OS_CHROMEOS) && defined(ARCH_CPU_X86_FAMILY) && defined(USE_X11)
@@ -259,7 +259,7 @@ void GpuVideoDecodeAccelerator::Initialize(
       static_cast<CGLContextObj>(
           stub_->decoder()->GetGLContext()->GetHandle()),
       make_context_current_));
-#elif defined(OS_CHROMEOS) && defined(ARCH_CPU_ARMEL) && defined(USE_X11)
+#elif (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(ARCH_CPU_ARMEL) && defined(USE_X11)
   scoped_ptr<V4L2Device> device = V4L2Device::Create(V4L2Device::kDecoder);
   if (!device.get()) {
     SendCreateDecoderReply(init_done_msg, false);
