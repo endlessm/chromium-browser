@@ -93,7 +93,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // we are being activated/deactivated.
   void HandleActivationChanged(bool active);
 
-  void SetSessionID(uint32 sessionid);
+  void SetSessionID(uint32 sessionid) override;
 
  protected:
   // Overridden from internal::NativeWidgetPrivate:

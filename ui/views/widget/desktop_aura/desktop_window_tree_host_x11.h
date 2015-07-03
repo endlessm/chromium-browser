@@ -85,7 +85,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // Deallocates the internal list of open windows.
   static void CleanUpWindowList();
 
-  void SetSessionID(uint32 sessionid);
+  void SetSessionID(uint32 sessionid) override;
 
  protected:
   // Overridden from DesktopWindowTreeHost:
