@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- Copyright 2014 The Chromium Authors. All rights reserved.
+     Use of this source code is governed by a BSD-style license that can be
+     found in the LICENSE file.
+-->
+
+<resources>
+    <style name="MainTheme" parent="@android:style/Theme.Holo">
+        <item name="android:actionBarStyle">@style/MainActionBar</item>
+    </style>
+    <style name="MainActionBar" parent="@android:style/Widget.Holo.ActionBar">
+        <item name="android:displayOptions">showHome</item>
+    </style>
+    <style name="EmptyStateText" parent="@android:style/TextAppearance.Holo.Large">
+        <item name="android:textColor">#888</item>
+    </style>
+    <style name="EmptyStateText.Hyperlink">
+        <item name="android:textColor">@android:color/holo_blue_light</item>
+        <item name="android:textStyle">italic</item>
+    </style>
+</resources>

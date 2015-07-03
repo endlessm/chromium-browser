@@ -1,0 +1,78 @@
+# -*- python -*-
+# Copyright (c) 2014 The Native Client Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+Import('env')
+
+if not env.Bit('bitcode'):
+  Return()
+if env['TOOLCHAIN_FEATURE_VERSION'] < 6:
+  Return()
+# Translating the PSO to an ELF DSO doesn't work on x86-64 yet.  The
+# Gold linker complains that the input "requires dynamic R_X86_64_32
+# reloc against <blah> which may overflow at runtime".  (In contrast,
+# the BFD linker in the glibc toolchain does handle this relocation.)
+# TODO(mseaborn): Fix this and enable the test for x86-64.
+if env.Bit('target_x86_64'):
+  Return()
+# The sandboxed translator does not support translating PSOs yet.
+if env.Bit('use_sandboxed_translator'):
+  Return()
+# The PNaCl dynamic loader currently only supports SFI NaCl's memory layout.
+if env.Bit('nonsfi_nacl'):
+  Return()
+
+
+def MakeAndTranslatePso(dest, bitcode_file, do_simplify):
+  # Run opt to apply PNaCl ABI simplifications to the IR and to run the
+  # PNaCl ABI checker.  We are bypassing pnacl-ld for now because its
+  # invocation of Gold internalizes __pnacl_pso_root, which we want to keep
+  # externally-visible.
+  passes = ''
+  if do_simplify:
+    passes = '-pnacl-abi-simplify-preopt -pnacl-abi-simplify-postopt '
+  opt_result = env.Command(
+      dest + '.nonfinal.pso', [bitcode_file],
+      '${PNACLOPT} ' + passes +
+      '-verify-pnaclabi-module -verify-pnaclabi-functions '
+      '-pnaclabi-allow-debug-metadata '
+      '${SOURCES} -o ${TARGET}')
+  # Finalize to strip debugging info and to emit PNaCl bitcode.
+  finalized_result = env.Command(
+      dest + '.final.pso', [opt_result],
+      '${PNACLFINALIZE} ${SOURCES} -o ${TARGET}')
+  # Translate to an ELF loadable object.
+  translated_dso = env.Command(dest + '.so', [finalized_result],
+                               '${TRANSLATE} -pso ${SOURCES} -o ${TARGET}')
+  return translated_dso
+
+
+def PsoFromLLVMAssembly(base_name):
+  bitcode_file = env.Command(
+      '%s.bc' % base_name, ['%s.ll' % base_name],
+      [Action('${ASCOM}', '${ASCOMSTR}')])
+  return MakeAndTranslatePso(base_name, [bitcode_file],
+                             # Skip PNaCl passes because they add TLS functions.
+                             do_simplify=False)
+
+
+dso1 = MakeAndTranslatePso('test_pso', [env.ComponentObject('test_pso.c')],
+                           do_simplify=True)
+dso2 = PsoFromLLVMAssembly('data_only_pso')
+dso3 = PsoFromLLVMAssembly('data_only_pso_largebss')
+
+dynloader_test = env.ComponentProgram(
+    'dynloader_test', ['dynloader_test.c'],
+    EXTRA_LIBS=['${NONIRT_LIBS}', 'pnacl_dynloader', 'platform'])
+
+node = env.CommandSelLdrTestNacl(
+    'dynloader_test.out', dynloader_test, [dso1, dso2, dso3],
+    # Add '-a' to enable filesystem access for opening DSOs.
+    sel_ldr_flags=['-a'])
+env.AddNodeToTestSuite(
+    node, ['small_tests', 'toolchain_tests'],
+    'run_pnacl_dynamic_loading_test',
+    # The loader currently depends on the allocate_code_data() interface
+    # provided by the IRT.
+    is_broken=not env.Bit('tests_use_irt'))

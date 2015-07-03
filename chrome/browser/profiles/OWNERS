@@ -1,0 +1,18 @@
+erg@chromium.org
+noms@chromium.org
+rlp@chromium.org
+
+# ProfileManager and GetDefaultProfile and related
+skuhne@chromium.org
+
+# Primarily for ProfileIOData and friends.
+mmenke@chromium.org
+ajwong@chromium.org
+
+# Primarily for ProfileIOData and friends, but on extended leave
+willchan@chromium.org
+
+per-file incognito_mode_policy_handler*=dconnelly@chromium.org
+per-file incognito_mode_policy_handler*=joaodasilva@chromium.org
+
+per-file profile_metrics*=mlerman@chromium.org

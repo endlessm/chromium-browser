@@ -1,0 +1,108 @@
+// Copyright (c) 2013 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+syntax = "proto2";
+
+option optimize_for = LITE_RUNTIME;
+
+package power_manager;
+
+// Power supply status sent from powerd to Chrome.
+message PowerSupplyProperties {
+  enum ExternalPower {
+    // AC/line/mains power is connected. This is generally the
+    // highest-power source that can be attached to the system, but the
+    // system may be drawing power at a high enough rate that the battery
+    // is discharging rather than charging; see BatteryState.
+    AC = 0;
+
+    // A USB power source (SDP, DCP, CDP, or ACA) is connected. The battery
+    // may be charging or discharging depending on the instantaneous power
+    // consumption and the negotiated current; see BatteryState.
+    USB = 1;
+
+    // An original spring AC charger (as identified by an ID sampled by the EC)
+    // is connected.
+    ORIGINAL_SPRING_CHARGER = 3;
+
+    // No external power source is connected.
+    DISCONNECTED = 2;
+
+    // Next value to use: 4
+  }
+
+  enum BatteryState {
+    // The battery is full or close to full.
+    FULL = 0;
+
+    // The battery is being charged but is not yet full.
+    CHARGING = 1;
+
+    // The battery is discharging. Note that an external power source may
+    // be connected but not supplying enough power to offset the system's
+    // instantaneous power consumption; see ExternalPower. This state is
+    // also used if the battery is neither charging nor discharging (i.e.
+    // current is zero) in a non-full state, which may indicate a battery
+    // defect.
+    DISCHARGING = 2;
+
+    // The system doesn't have a battery.
+    NOT_PRESENT = 3;
+
+    // Next value to use: 4
+  }
+
+  // Details about a potential source of power to the system.
+  message PowerSource {
+    // Opaque ID corresponding to the device; see |external_power_source_id|.
+    optional string id = 1;
+
+    // User-friendly name describing the device.
+    optional string name = 2;
+
+    // True if the power source will automatically deliver charge to the system
+    // when connected (assuming there isn't another |active_by_default| source
+    // doing so). If false, the source will not deliver charge unless requested
+    // to do so by the user.
+    optional bool active_by_default = 3;
+
+    // Next ID to use: 4
+  }
+
+  // Current state of the external power source.
+  optional ExternalPower external_power = 14;
+
+  // ID of the PowerSource that is currently providing power to the system.
+  optional string external_power_source_id = 17;
+
+  // Currently-connected external power sources.
+  repeated PowerSource available_external_power_source = 18;
+
+  // Current state of the battery.
+  optional BatteryState battery_state = 15;
+
+  // Estimated battery charge as a percent of its total capacity, in the
+  // range [0.0, 100.0].
+  optional double battery_percent = 7;
+
+  // Estimated time until the battery is empty, in seconds, or zero if the
+  // battery isn't discharging. -1 if the estimated time would be huge
+  // (e.g. because the current is zero or close to zero).
+  optional int64 battery_time_to_empty_sec = 5;
+
+  // Estimated time until the battery is full, in seconds, or zero if the
+  // battery isn't charging. -1 if the estimated time would be huge (e.g.
+  // because the current is zero or close to zero).
+  optional int64 battery_time_to_full_sec = 6;
+
+  // True when |battery_time_to_*| can't be trusted, e.g. because the power
+  // source just changed.
+  optional bool is_calculating_battery_time = 12 [default = false];
+
+  // The battery discharge rate measured in W. Positive if the battery is
+  // being discharged and negative if it's being charged.
+  optional double battery_discharge_rate = 16;
+
+  // Next ID to use: 19
+}

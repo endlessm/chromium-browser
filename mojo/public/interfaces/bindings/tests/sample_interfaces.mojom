@@ -1,0 +1,26 @@
+// Copyright 2014 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+[JavaPackage="org.chromium.mojo.bindings.test.mojom.sample",
+ JavaConstantsClassName="InterfaceConstants",
+ Foo = "hello world"]
+module sample;
+
+const uint64 kLong = 4405;
+
+enum Enum {
+  VALUE
+};
+
+[Client=ProviderClient]
+interface Provider {
+  EchoString(string a) => (string a);
+  EchoStrings(string a, string b) => (string a, string b);
+  EchoMessagePipeHandle(handle<message_pipe> a) => (handle<message_pipe> a);
+  EchoEnum(Enum a) => (Enum a);
+};
+
+// TODO(darin): We shouldn't need this, but JS bindings don't work without it.
+interface ProviderClient {
+};

@@ -1,0 +1,12 @@
+include_rules = [
+  "+components/history",
+  "+components/metrics/proto",
+  "+components/search",
+  "+components/search_engines",
+  "+components/url_fixer",
+  "+components/variations",
+  "+grit",
+  "+net",
+  "+ui/base",
+  "+url",
+]

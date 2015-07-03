@@ -1,0 +1,78 @@
+{
+  "gtest_tests": [
+    "accessibility_unittests",
+    {
+      "test": "base_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "browser_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 10
+      }
+    },
+    "cacheinvalidation_unittests",
+    "cc_unittests",
+    "components_unittests",
+    {
+      "test": "content_browsertests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "content_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    "crypto_unittests",
+    "device_unittests",
+    {
+      "test": "display_unittests",
+      "platforms": ["linux"]
+    },
+    "extensions_unittests",
+    "gcm_unit_tests",
+    "gfx_unittests",
+    "google_apis_unittests",
+    "gpu_unittests",
+    {
+      "test": "interactive_ui_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 3
+      }
+    },
+    "ipc_tests",
+    "jingle_unittests",
+    "media_unittests",
+    {
+      "test": "net_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    "ppapi_unittests",
+    "printing_unittests",
+    "remoting_unittests",
+    {
+      "test": "sandbox_linux_unittests",
+      "platforms": ["linux"]
+    },
+    "sql_unittests",
+    "sync_unit_tests",
+    "ui_unittests",
+    {
+      "test": "unit_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 2
+      }
+    },
+    "url_unittests"
+  ]
+}

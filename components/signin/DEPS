@@ -1,0 +1,10 @@
+include_rules = [
+  "+components/keyed_service/core",
+  "+components/os_crypt",
+  "+components/webdata/common",
+  "+crypto",
+  "+google_apis/gaia",
+  "+grit",  # For generated headers
+  "+net",
+  "+sql",
+]

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2011 The Chromium Authors. All rights reserved.
+     Use of this source code is governed by a BSD-style license that can be
+     found in the LICENSE file.
+-->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- InfoBar constants -->
+    <item type="id" name="infobar_message" />
+    <item type="id" name="infobar_close_button" />
+    <item type="id" name="button_primary" />
+    <item type="id" name="button_secondary" />
+    <item type="id" name="button_tertiary" />
+    <item type="id" name="infobar_extra_check" />
+    
+    <!-- Menu Animation Constants -->
+    <item type="fraction" format="fraction" name="menu_animation_pivot_x">95%</item>
+</resources>

@@ -1,0 +1,11 @@
+include_rules = [
+  "+chrome/grit",  # For generated headers.
+  "+content/public/child",
+  "+content/public/utility",
+  "+components/wifi",
+  "+courgette",
+  "+extensions/common",
+  "+skia/ext",
+  "+media",
+  "+third_party/zlib/google",
+]

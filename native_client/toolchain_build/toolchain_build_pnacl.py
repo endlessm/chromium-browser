@@ -1,0 +1,968 @@
+#!/usr/bin/python
+# Copyright (c) 2013 The Native Client Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""Recipes for PNaCl toolchain packages.
+
+   Recipes consist of specially-structured dictionaries, with keys for package
+   name, type, commands to execute, etc. The structure is documented in the
+   PackageBuilder docstring in toolchain_main.py.
+
+   The real entry plumbing and CLI flags are also in toolchain_main.py.
+"""
+
+import fnmatch
+import logging
+import os
+import shutil
+import sys
+import zipfile
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import pynacl.gsd_storage
+import pynacl.platform
+import pynacl.repo_tools
+
+import command
+import pnacl_commands
+import pnacl_targetlibs
+import toolchain_main
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+NACL_DIR = os.path.dirname(SCRIPT_DIR)
+# Use the argparse from third_party to ensure it's the same on all platorms
+python_lib_dir = os.path.join(os.path.dirname(NACL_DIR), 'third_party',
+                              'python_libs', 'argparse')
+sys.path.insert(0, python_lib_dir)
+import argparse
+
+PNACL_DRIVER_DIR = os.path.join(NACL_DIR, 'pnacl', 'driver')
+NACL_TOOLS_DIR = os.path.join(NACL_DIR, 'tools')
+
+# Scons tests can check this version number to decide whether to enable tests
+# for toolchain bug fixes or new features.  This allows tests to be enabled on
+# the toolchain buildbots/trybots before the new toolchain version is pinned
+# (i.e. before the tests would pass on the main NaCl buildbots/trybots).
+# If you are adding a test that depends on a toolchain change, you can
+# increment this version number manually.
+FEATURE_VERSION = 9
+
+# For backward compatibility, these key names match the directory names
+# previously used with gclient
+GIT_REPOS = {
+    'binutils': 'nacl-binutils.git',
+    'clang': 'pnacl-clang.git',
+    'llvm': 'pnacl-llvm.git',
+    'gcc': 'pnacl-gcc.git',
+    'libcxx': 'pnacl-libcxx.git',
+    'libcxxabi': 'pnacl-libcxxabi.git',
+    'nacl-newlib': 'nacl-newlib.git',
+    'llvm-test-suite': 'pnacl-llvm-testsuite.git',
+    'compiler-rt': 'pnacl-compiler-rt.git',
+    'subzero': 'pnacl-subzero.git',
+    'binutils-x86': 'nacl-binutils.git',
+    }
+
+GIT_BASE_URL = 'https://chromium.googlesource.com/native_client/'
+GIT_PUSH_URL = 'ssh://gerrit.chromium.org/native_client/'
+GIT_DEPS_FILE = os.path.join(NACL_DIR, 'pnacl', 'COMPONENT_REVISIONS')
+
+ALT_GIT_BASE_URL = 'https://chromium.googlesource.com/a/native_client/'
+
+KNOWN_MIRRORS = [('http://git.chromium.org/native_client/', GIT_BASE_URL)]
+PUSH_MIRRORS = [('http://git.chromium.org/native_client/', GIT_PUSH_URL),
+                (ALT_GIT_BASE_URL, GIT_PUSH_URL),
+                (GIT_BASE_URL, GIT_PUSH_URL)]
+
+PACKAGE_NAME = 'Native Client SDK [%(build_signature)s]'
+BUG_URL = 'http://gonacl.com/reportissue'
+
+# TODO(dschuff): Some of this mingw logic duplicates stuff in command.py
+BUILD_CROSS_MINGW = False
+# Path to the mingw cross-compiler libs on Ubuntu
+CROSS_MINGW_LIBPATH = '/usr/lib/gcc/i686-w64-mingw32/4.6'
+# Path and version of the native mingw compiler to be installed on Windows hosts
+MINGW_PATH = os.path.join(NACL_DIR, 'mingw32')
+MINGW_VERSION = 'i686-w64-mingw32-4.8.1'
+
+CHROME_CLANG = os.path.join(os.path.dirname(NACL_DIR), 'third_party',
+                            'llvm-build', 'Release+Asserts', 'bin', 'clang')
+CHROME_CLANGXX = CHROME_CLANG + '++'
+
+# Redirectors are small shims acting like sym links with optional arguments.
+# For mac/linux we simply use a shell script which create small redirector
+# shell scripts. For windows we compile an executable which redirects to
+# the target using a compiled in table.
+REDIRECTOR_SCRIPT = os.path.join(NACL_TOOLS_DIR, 'create_redirector.sh')
+REDIRECTOR_WIN32_SRC = os.path.join(NACL_TOOLS_DIR, 'redirector')
+
+TOOL_X64_I686_REDIRECTS = [
+    #Toolname, Tool Args
+    ('as',     '--32'),
+    ('ld',     '-melf_i386_nacl'),
+    ]
+
+TRANSLATOR_ARCHES = ('x86-32', 'x86-64', 'arm', 'mips32',
+                     'x86-32-nonsfi', 'arm-nonsfi')
+# MIPS32 doesn't use biased bitcode, and nonsfi targets don't need it.
+BITCODE_BIASES = tuple(
+    bias for bias in ('le32', 'i686_bc', 'x86_64_bc', 'arm_bc'))
+
+DIRECT_TO_NACL_ARCHES = ('x86_64', 'i686')
+
+MAKE_DESTDIR_CMD = ['make', 'DESTDIR=%(abs_output)s']
+
+def TripleIsWindows(t):
+  return fnmatch.fnmatch(t, '*-mingw32*')
+
+def TripleIsCygWin(t):
+  return fnmatch.fnmatch(t, '*-cygwin*')
+
+def TripleIsLinux(t):
+  return fnmatch.fnmatch(t, '*-linux*')
+
+def TripleIsMac(t):
+  return fnmatch.fnmatch(t, '*-darwin*')
+
+def TripleIsX8664(t):
+  return fnmatch.fnmatch(t, 'x86_64*')
+
+
+# Return a tuple (C compiler, C++ compiler) of the compilers to compile the host
+# toolchains
+def CompilersForHost(host):
+  compiler = {
+      # For now we only do native builds for linux and mac
+      # treat 32-bit linux like a native build
+      'i686-linux': (CHROME_CLANG, CHROME_CLANGXX),
+      'x86_64-linux': (CHROME_CLANG, CHROME_CLANGXX),
+      'x86_64-apple-darwin': (CHROME_CLANG, CHROME_CLANGXX),
+      # Windows build should work for native and cross
+      'i686-w64-mingw32': ('i686-w64-mingw32-gcc', 'i686-w64-mingw32-g++'),
+      # TODO: add arm-hosted support
+      'i686-pc-cygwin': ('gcc', 'g++'),
+  }
+  return compiler[host]
+
+
+def GSDJoin(*args):
+  return '_'.join([pynacl.gsd_storage.LegalizeName(arg) for arg in args])
+
+
+def ConfigureHostArchFlags(host, extra_cflags, options):
+  """ Return flags passed to LLVM and binutils configure for compilers and
+  compile flags. """
+  configure_args = []
+  extra_cc_args = []
+
+  native = pynacl.platform.PlatformTriple()
+  is_cross = host != native
+  if is_cross:
+    if (pynacl.platform.IsLinux64() and
+        fnmatch.fnmatch(host, '*-linux*')):
+      # 64 bit linux can build 32 bit linux binaries while still being a native
+      # build for our purposes. But it's not what config.guess will yield, so
+      # use --build to force it and make sure things build correctly.
+      configure_args.append('--build=' + host)
+    else:
+      configure_args.append('--host=' + host)
+  if TripleIsLinux(host) and not TripleIsX8664(host):
+    # Chrome clang defaults to 64-bit builds, even when run on 32-bit Linux.
+    extra_cc_args = ['-m32']
+
+  extra_cxx_args = list(extra_cc_args)
+
+  if not options.gcc:
+    cc, cxx = CompilersForHost(host)
+
+    configure_args.append('CC=' + ' '.join([cc] + extra_cc_args))
+    configure_args.append('CXX=' + ' '.join([cxx] + extra_cxx_args))
+
+  if TripleIsWindows(host):
+    # The i18n support brings in runtime dependencies on MinGW DLLs
+    # that we don't want to have to distribute alongside our binaries.
+    # So just disable it, and compiler messages will always be in US English.
+    configure_args.append('--disable-nls')
+    configure_args.extend(['LDFLAGS=-L%(abs_libdl)s -ldl',
+                           'CFLAGS=-isystem %(abs_libdl)s',
+                           'CXXFLAGS=-isystem %(abs_libdl)s'])
+    if is_cross:
+      # LLVM's linux->mingw cross build needs this
+      configure_args.append('CC_FOR_BUILD=gcc')
+  else:
+    if options.gcc:
+      configure_args.extend(['CFLAGS=' + ' '.join(extra_cflags),
+                             'CXXFLAGS=' + ' '.join(extra_cflags)])
+    else:
+      configure_args.extend(
+       ['CFLAGS=' + ' '.join(extra_cflags),
+        'LDFLAGS=-L%(' + GSDJoin('abs_libcxx', host) + ')s/lib',
+        'CXXFLAGS=-stdlib=libc++ -I%(' + GSDJoin('abs_libcxx', host) +
+        ')s/include/c++/v1 ' + ' '.join(extra_cflags)])
+
+  return configure_args
+
+
+def LibCxxHostArchFlags(host):
+  cc, cxx = CompilersForHost(host)
+  cmake_flags = []
+  cmake_flags.extend(['-DCMAKE_C_COMPILER='+cc, '-DCMAKE_CXX_COMPILER='+cxx])
+  if TripleIsLinux(host) and not TripleIsX8664(host):
+    # Chrome clang defaults to 64-bit builds, even when run on 32-bit Linux
+    cmake_flags.extend(['-DCMAKE_C_FLAGS=-m32',
+                        '-DCMAKE_CXX_FLAGS=-m32'])
+  return cmake_flags
+
+def CmakeHostArchFlags(host, options):
+  """ Set flags passed to LLVM cmake for compilers and compile flags. """
+  cmake_flags = []
+  cc, cxx = CompilersForHost(host)
+
+  cmake_flags.extend(['-DCMAKE_C_COMPILER='+cc, '-DCMAKE_CXX_COMPILER='+cxx])
+
+  # There seems to be a bug in chrome clang where it exposes the msan interface
+  # (even when compiling without msan) but then does not link with an
+  # msan-enabled compiler_rt, leaving references to __msan_allocated_memory
+  # undefined.
+  cmake_flags.append('-DHAVE_SANITIZER_MSAN_INTERFACE_H=FALSE')
+
+  if options.sanitize:
+    cmake_flags.extend(['-DCMAKE_%s_FLAGS=-fsanitize=%s' % (c, options.sanitize)
+                        for c in ('C', 'CXX')])
+    cmake_flags.append('-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=%s' %
+                       options.sanitize)
+
+  return cmake_flags
+
+
+def ConfigureBinutilsCommon():
+  return ['--with-pkgversion=' + PACKAGE_NAME,
+          '--with-bugurl=' + BUG_URL,
+          '--without-zlib',
+          '--prefix=',
+          '--disable-silent-rules',
+          '--enable-deterministic-archives',
+         ]
+
+def LLVMConfigureAssertionsFlags(options):
+  if options.enable_llvm_assertions:
+    return []
+  else:
+    return ['--disable-debug', '--disable-assertions']
+
+
+def MakeCommand(host):
+  make_command = ['make']
+  if not pynacl.platform.IsWindows() or pynacl.platform.IsCygWin():
+    # The make that ships with msys sometimes hangs when run with -j.
+    # The ming32-make that comes with the compiler itself reportedly doesn't
+    # have this problem, but it has issues with pathnames with LLVM's build.
+    make_command.append('-j%(cores)s')
+
+  if TripleIsWindows(host):
+    # There appears to be nothing we can pass at top-level configure time
+    # that will prevent the configure scripts from finding MinGW's libiconv
+    # and using it.  We have to force this variable into the environment
+    # of the sub-configure runs, which are run via make.
+    make_command.append('HAVE_LIBICONV=no')
+  return make_command
+
+
+def CopyWindowsHostLibs(host):
+  if not TripleIsWindows(host) and not TripleIsCygWin(host):
+    return []
+
+  if TripleIsCygWin(host):
+    lib_path = '/bin'
+    libs = ('cyggcc_s-1.dll', 'cygiconv-2.dll', 'cygwin1.dll',
+            'cygintl-8.dll', 'cygstdc++-6.dll', 'cygz.dll')
+  elif pynacl.platform.IsWindows():
+    lib_path = os.path.join(MINGW_PATH, 'bin')
+    # The native minGW compiler uses winpthread, but the Ubuntu cross compiler
+    # does not.
+    libs = ('libgcc_s_sjlj-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')
+  else:
+    lib_path = os.path.join(CROSS_MINGW_LIBPATH)
+    libs = ('libgcc_s_sjlj-1.dll', 'libstdc++-6.dll')
+  return [command.Copy(
+                  os.path.join(lib_path, lib),
+                  os.path.join('%(output)s', 'bin', lib))
+               for lib in libs]
+
+def GetGitSyncCmdsCallback(revisions):
+  """Return a callback which returns the git sync commands for a component.
+
+     This allows all the revision information to be processed here while giving
+     other modules like pnacl_targetlibs.py the ability to define their own
+     source targets with minimal boilerplate.
+  """
+  def GetGitSyncCmds(component):
+    git_url = GIT_BASE_URL + GIT_REPOS[component]
+    git_push_url = GIT_PUSH_URL + GIT_REPOS[component]
+
+    return (command.SyncGitRepoCmds(git_url, '%(output)s', revisions[component],
+                                    git_cache='%(git_cache_dir)s',
+                                    push_url=git_push_url,
+                                    known_mirrors=KNOWN_MIRRORS,
+                                    push_mirrors=PUSH_MIRRORS) +
+            [command.Runnable(lambda opts: opts.IsBot(),
+                              pnacl_commands.CmdCheckoutGitBundleForTrybot,
+                              component, '%(output)s')])
+
+  return GetGitSyncCmds
+
+
+def HostToolsSources(GetGitSyncCmds):
+  sources = {
+      'libcxx_src': {
+          'type': 'source',
+          'output_dirname': 'libcxx',
+          'commands': GetGitSyncCmds('libcxx'),
+      },
+      'libcxxabi_src': {
+          'type': 'source',
+          'output_dirname': 'libcxxabi',
+          'commands': GetGitSyncCmds('libcxxabi'),
+      },
+      'binutils_pnacl_src': {
+          'type': 'source',
+          'output_dirname': 'binutils',
+          'commands': GetGitSyncCmds('binutils'),
+      },
+      # For some reason, the llvm build using --with-clang-srcdir chokes if the
+      # clang source directory is named something other than 'clang', so don't
+      # change output_dirname for clang.
+      'clang_src': {
+          'type': 'source',
+          'output_dirname': 'clang',
+          'commands': GetGitSyncCmds('clang'),
+      },
+      'llvm_src': {
+          'type': 'source',
+          'output_dirname': 'llvm',
+          'commands': GetGitSyncCmds('llvm'),
+      },
+      'subzero_src': {
+          'type': 'source',
+          'output_dirname': 'subzero',
+          'commands': GetGitSyncCmds('subzero'),
+      },
+      'binutils_x86_src': {
+          'type': 'source',
+          'output_dirname': 'binutils-x86',
+          'commands': GetGitSyncCmds('binutils-x86'),
+      },
+  }
+  return sources
+
+def TestsuiteSources(GetGitSyncCmds):
+  sources = {
+      'llvm_testsuite_src': {
+          'type': 'source',
+          'output_dirname': 'llvm-test-suite',
+          'commands': GetGitSyncCmds('llvm-test-suite'),
+      },
+  }
+  return sources
+
+
+def CopyHostLibcxxForLLVMBuild(host, dest, options):
+  """Copy libc++ to the working directory for build tools."""
+  if options.gcc:
+    return []
+  if TripleIsLinux(host):
+    libname = 'libc++.so.1'
+  elif TripleIsMac(host):
+    libname = 'libc++.1.dylib'
+  else:
+    return []
+  return [command.Mkdir(dest, parents=True),
+          command.Copy('%(' + GSDJoin('abs_libcxx', host) +')s/lib/' + libname,
+                       os.path.join(dest, libname))]
+
+def HostLibs(host, options):
+  def H(component_name):
+    # Return a package name for a component name with a host triple.
+    return GSDJoin(component_name, host)
+  libs = {}
+  if TripleIsWindows(host):
+    if pynacl.platform.IsWindows():
+      ar = 'ar'
+    else:
+      ar = 'i686-w64-mingw32-ar'
+
+    libs.update({
+      'libdl': {
+          'type': 'build',
+          'inputs' : { 'src' : os.path.join(NACL_DIR, '..', 'third_party',
+                                            'dlfcn-win32') },
+          'commands': [
+              command.CopyTree('%(src)s', 'src'),
+              command.Command(['i686-w64-mingw32-gcc',
+                               '-o', 'dlfcn.o', '-c',
+                               os.path.join('src', 'dlfcn.c'),
+                               '-Wall', '-O3', '-fomit-frame-pointer']),
+              command.Command([ar, 'cru',
+                               'libdl.a', 'dlfcn.o']),
+              command.Copy('libdl.a',
+                           os.path.join('%(output)s', 'libdl.a')),
+              command.Copy(os.path.join('src', 'dlfcn.h'),
+                           os.path.join('%(output)s', 'dlfcn.h')),
+          ],
+      },
+    })
+  elif not options.gcc:
+    # Libc++ is only tested with the clang build
+    libs.update({
+        H('libcxx'): {
+            'dependencies': ['libcxx_src', 'libcxxabi_src'],
+            'type': 'build',
+            'commands': [
+                command.SkipForIncrementalCommand([
+                    'cmake', '-G', 'Unix Makefiles'] +
+                     LibCxxHostArchFlags(host) +
+                     ['-DLIBCXX_CXX_ABI=libcxxabi',
+                      '-DLIBCXX_LIBCXXABI_INCLUDE_PATHS=' + command.path.join(
+                          '%(abs_libcxxabi_src)s', 'include'),
+                      '-DLIBCXX_ENABLE_SHARED=ON',
+                      '-DCMAKE_INSTALL_PREFIX=',
+                      '-DCMAKE_INSTALL_NAME_DIR=@executable_path/../lib',
+                      '%(libcxx_src)s']),
+                command.Command(MakeCommand(host) + ['VERBOSE=1']),
+                command.Command(MAKE_DESTDIR_CMD + ['VERBOSE=1', 'install']),
+            ],
+        },
+    })
+  return libs
+
+
+def HostTools(host, options):
+  def H(component_name):
+    # Return a package name for a component name with a host triple.
+    return GSDJoin(component_name, host)
+  # Return the file name with the appropriate suffix for an executable file.
+  def Exe(file):
+    if TripleIsWindows(host):
+      return file + '.exe'
+    else:
+      return file
+  # Binutils still has some warnings when building with clang
+  warning_flags = ['-Wno-extended-offsetof', '-Wno-absolute-value',
+                   '-Wno-unused-function', '-Wno-unused-const-variable',
+                   '-Wno-unneeded-internal-declaration',
+                   '-Wno-unused-private-field', '-Wno-format-security']
+  tools = {
+      H('binutils_pnacl'): {
+          'dependencies': ['binutils_pnacl_src'],
+          'type': 'build',
+          'commands': [
+              command.SkipForIncrementalCommand([
+                  'sh',
+                  '%(binutils_pnacl_src)s/configure'] +
+                  ConfigureBinutilsCommon() +
+                  ConfigureHostArchFlags(host, warning_flags, options) +
+                  ['--target=arm-pc-nacl',
+                  '--program-prefix=le32-nacl-',
+                  '--enable-targets=arm-pc-nacl,i686-pc-nacl,x86_64-pc-nacl,' +
+                  'mipsel-pc-nacl',
+                  '--enable-shared=no',
+                  '--enable-gold=default',
+                  '--enable-ld=no',
+                  '--enable-plugins',
+                  '--without-gas',
+                  '--with-sysroot=/le32-nacl']),
+              command.Command(MakeCommand(host)),
+              command.Command(MAKE_DESTDIR_CMD + ['install-strip'])] +
+              [command.RemoveDirectory(os.path.join('%(output)s', dir))
+               for dir in ('arm-pc-nacl', 'lib', 'lib32')]
+      },
+      H('driver'): {
+        'type': 'build',
+        'output_subdir': 'bin',
+        'inputs': { 'src': PNACL_DRIVER_DIR },
+        'commands': [
+            command.Runnable(
+                None,
+                pnacl_commands.InstallDriverScripts,
+                '%(src)s', '%(output)s',
+                host_windows=TripleIsWindows(host) or TripleIsCygWin(host),
+                host_64bit=TripleIsX8664(host))
+        ],
+      },
+  }
+
+  llvm_cmake = {
+      H('llvm'): {
+          'dependencies': ['clang_src', 'llvm_src', 'binutils_pnacl_src'],
+          'type': 'build',
+          'commands': [
+              command.SkipForIncrementalCommand([
+                  'cmake', '-G', 'Ninja'] +
+                  CmakeHostArchFlags(host, options) +
+                  ['-DCMAKE_BUILD_TYPE=RelWithDebInfo',
+                  '-DCMAKE_INSTALL_PREFIX=%(output)s',
+                  '-DCMAKE_INSTALL_RPATH=$ORIGIN/../lib',
+                  '-DLLVM_ENABLE_LIBCXX=ON',
+                  '-DBUILD_SHARED_LIBS=ON',
+                  '-DLLVM_TARGETS_TO_BUILD=X86;ARM;Mips',
+                  '-DLLVM_ENABLE_ASSERTIONS=ON',
+                  '-DLLVM_ENABLE_ZLIB=OFF',
+                  '-DLLVM_BUILD_TESTS=ON',
+                  '-DLLVM_APPEND_VC_REV=ON',
+                  '-DLLVM_BINUTILS_INCDIR=%(abs_binutils_pnacl_src)s/include',
+                  '-DLLVM_EXTERNAL_CLANG_SOURCE_DIR=%(clang_src)s',
+                  '%(llvm_src)s']),
+              command.Command(['ninja', '-v']),
+              command.Command(['ninja', 'install']),
+        ],
+      },
+  }
+  llvm_autoconf = {
+      H('llvm'): {
+          'dependencies': ['clang_src', 'llvm_src', 'binutils_pnacl_src',
+                           'subzero_src'],
+          'type': 'build',
+          'commands': [
+              command.SkipForIncrementalCommand([
+                  'sh',
+                  '%(llvm_src)s/configure'] +
+                  ConfigureHostArchFlags(host, [], options) +
+                  LLVMConfigureAssertionsFlags(options) +
+                  ['--prefix=/',
+                   '--enable-shared',
+                   '--disable-zlib',
+                   '--disable-terminfo',
+                   '--disable-jit',
+                   '--disable-bindings', # ocaml is currently the only binding.
+                   '--with-binutils-include=%(abs_binutils_pnacl_src)s/include',
+                   '--enable-targets=x86,arm,mips',
+                   '--program-prefix=',
+                   '--enable-optimized',
+                   '--with-clang-srcdir=%(abs_clang_src)s'])] +
+              CopyHostLibcxxForLLVMBuild(
+                  host,
+                  os.path.join('Release+Asserts', 'lib'),
+                  options) +
+              [command.Command(MakeCommand(host) + [
+                  'VERBOSE=1',
+                  'NACL_SANDBOX=0',
+                  'SUBZERO_SRC_ROOT=%(abs_subzero_src)s',
+                  'all']),
+              command.Command(MAKE_DESTDIR_CMD + ['install']),
+              command.Remove(*[os.path.join('%(output)s', 'lib', f) for f in
+                              '*.a', '*Hello.*', 'BugpointPasses.*']),
+              command.Remove(*[os.path.join('%(output)s', 'bin', f) for f in
+                               Exe('clang-format'), Exe('clang-check'),
+                               Exe('c-index-test'), Exe('clang-tblgen'),
+                               Exe('llvm-tblgen')])] +
+              [command.Command(['ln', '-f',
+                                command.path.join('%(output)s', 'bin','clang'),
+                                command.path.join('%(output)s', 'bin',
+                                                  arch + '-nacl-clang')])
+               for arch in DIRECT_TO_NACL_ARCHES] +
+              [command.Command(['ln', '-f',
+                                command.path.join('%(output)s', 'bin','clang'),
+                                command.path.join('%(output)s', 'bin',
+                                                  arch + '-nacl-clang++')])
+               for arch in DIRECT_TO_NACL_ARCHES] +
+              CopyWindowsHostLibs(host),
+      },
+  }
+  if options.cmake:
+    tools.update(llvm_cmake)
+  else:
+    tools.update(llvm_autoconf)
+  if TripleIsWindows(host):
+    tools[H('binutils_pnacl')]['dependencies'].append('libdl')
+    tools[H('llvm')]['dependencies'].append('libdl')
+  elif not options.gcc:
+    tools[H('binutils_pnacl')]['dependencies'].append(H('libcxx'))
+    tools[H('llvm')]['dependencies'].append(H('libcxx'))
+  return tools
+
+
+def TargetLibCompiler(host, options):
+  def H(component_name):
+    return GSDJoin(component_name, host)
+  compiler = {
+      # Because target_lib_compiler is not a memoized target, its name doesn't
+      # need to have the host appended to it (it can be different on different
+      # hosts), which means that target library build rules don't have to care
+      # what host they run on; they can just depend on 'target_lib_compiler'
+      'target_lib_compiler': {
+          'type': 'work',
+          'output_subdir': 'target_lib_compiler',
+          'dependencies': [ H('binutils_pnacl'), H('llvm'), H('binutils_x86') ],
+          'inputs': { 'driver': PNACL_DRIVER_DIR },
+          'commands': [
+              command.CopyRecursive('%(' + t + ')s', '%(output)s')
+              for t in [H('llvm'), H('binutils_pnacl'), H('binutils_x86')]] + [
+              command.Runnable(
+                  None, pnacl_commands.InstallDriverScripts,
+                  '%(driver)s', os.path.join('%(output)s', 'bin'),
+                  host_windows=TripleIsWindows(host) or TripleIsCygWin(host),
+                  host_64bit=TripleIsX8664(host))
+          ]
+      },
+  }
+
+  if TripleIsWindows(host) or not options.gcc:
+    host_lib = 'libdl' if TripleIsWindows(host) else H('libcxx')
+    compiler['target_lib_compiler']['dependencies'].append(host_lib)
+    compiler['target_lib_compiler']['commands'].append(
+        command.CopyRecursive('%(' + host_lib + ')s', '%(output)s'))
+  return compiler
+
+
+def Metadata(revisions):
+  data = {
+      'metadata': {
+          'type': 'build',
+          'inputs': { 'readme': os.path.join(NACL_DIR, 'pnacl', 'README'),
+                      'COMPONENT_REVISIONS': GIT_DEPS_FILE,
+                      'driver': PNACL_DRIVER_DIR },
+          'commands': [
+              command.Copy('%(readme)s', os.path.join('%(output)s', 'README')),
+              command.WriteData(str(FEATURE_VERSION),
+                                os.path.join('%(output)s', 'FEATURE_VERSION')),
+              command.Runnable(None, pnacl_commands.WriteREVFile,
+                               os.path.join('%(output)s', 'REV'),
+                               GIT_BASE_URL,
+                               GIT_REPOS,
+                               revisions),
+          ],
+      }
+  }
+  return data
+
+
+def HostToolsDirectToNacl(host):
+  def H(component_name):
+    return GSDJoin(component_name, host)
+
+  tools = {}
+
+  if TripleIsWindows(host):
+    redirector_table = ''
+    for tool, args in TOOL_X64_I686_REDIRECTS:
+      redirector_table += '  {L"/bin/i686-nacl-%s.exe",' % tool + \
+                          '   L"/bin/x86_64-nacl-%s.exe",' % tool + \
+                          ' L"%s"},\n' % args
+
+    cc, cxx = CompilersForHost(host)
+    tools.update({
+        'redirector_src': {
+            'type': 'source',
+            'inputs': { 'source_directory': REDIRECTOR_WIN32_SRC },
+            'commands': [
+                command.CopyTree('%(source_directory)s', '%(output)s'),
+                command.WriteData(redirector_table,
+                                  os.path.join('%(output)s',
+                                               'redirector_table.txt')),
+            ],
+        },
+        'redirector': {
+            'type': 'build',
+            'dependencies': ['redirector_src'],
+            'commands': [
+                command.Mkdir('%(output)s', parents=True),
+                command.Command([cc, '-O3', '-std=c99',
+                                 '-I',
+                                 os.path.join(NACL_DIR, '..'),
+                                 '-o',
+                                 os.path.join('%(output)s', 'redirector.exe'),
+                                 os.path.join('%(redirector_src)s',
+                                              'redirector.c')]),
+            ],
+        },
+    })
+
+    redirect_deps = ['redirector']
+    redirect_inputs = {}
+    redirect_cmds = [
+        command.Command([
+            'ln', '-f',
+            command.path.join('%(redirector)s', 'redirector.exe'),
+            command.path.join('%(output)s', 'bin', 'i686-nacl-%s.exe' % tool)])
+        for tool, args in TOOL_X64_I686_REDIRECTS]
+  else:
+    redirect_deps = []
+    redirect_inputs = { 'redirector_script': REDIRECTOR_SCRIPT }
+    redirect_cmds = [
+        command.Command([
+            '%(abs_redirector_script)s',
+            command.path.join('%(output)s', 'bin', 'i686-nacl-' + tool),
+            'x86_64-nacl-' + tool,
+            args])
+        for tool, args in TOOL_X64_I686_REDIRECTS]
+
+  tools.update({
+      H('binutils_x86'): {
+          'type': 'build',
+          'dependencies': ['binutils_x86_src'] + redirect_deps,
+          'inputs': redirect_inputs,
+          'commands': [
+              command.SkipForIncrementalCommand(
+                  ['sh', '%(binutils_x86_src)s/configure'] +
+                  ConfigureBinutilsCommon() +
+                  ['--target=x86_64-nacl',
+                   '--enable-targets=x86_64-nacl,i686-nacl',
+                   '--disable-werror']),
+              command.Command(MakeCommand(host)),
+              command.Command(MAKE_DESTDIR_CMD + ['install-strip'])] +
+              # Remove the share dir from this binutils build and leave the one
+              # from the newer version used for bitcode linking. Always remove
+              # the lib dirs, which have unneeded host libs.
+              [command.RemoveDirectory(os.path.join('%(output)s', dir))
+               for dir in ('lib', 'lib32', 'lib64', 'share')] +
+              # Create the set of directories for target libs and includes, for
+              # experimentation before we actually build them.
+              # Libc includes (libs dir is created by binutils)
+              # TODO(dschuff): remove these when they are populated by target
+              # library packages.
+              [command.Mkdir(command.path.join(
+                  '%(output)s', 'x86_64-nacl', 'include'), parents=True),
+               command.Mkdir(command.path.join(
+                   '%(output)s', 'x86_64-nacl', 'lib32')),
+               command.Command(['ln', '-s', command.path.join('..','lib32'),
+                               command.path.join(
+                                   '%(output)s', 'x86_64-nacl', 'lib', '32')]),
+               command.Command(['ln', '-s', 'lib',
+                               command.path.join(
+                                   '%(output)s', 'x86_64-nacl', 'lib64')])] +
+              # Compiler libs (includes are shared)
+              [command.Mkdir(command.path.join('%(output)s',
+                  'lib', 'clang', '3.4', 'lib', target), parents=True)
+               for target in ['i686-nacl', 'x86_64-nacl']] +
+              # Create links for i686-flavored names of the tools. For now we
+              # don't use the redirector scripts that pass different arguments
+              # because the compiler driver doesn't need them.
+              [command.Command([
+                  'ln', '-f',
+                  command.path.join('%(output)s', 'bin', 'x86_64-nacl-' + tool),
+                  command.path.join('%(output)s', 'bin', 'i686-nacl-' + tool)])
+               for tool in ['addr2line', 'ar', 'nm', 'objcopy', 'objdump',
+                            'ranlib', 'readelf', 'size', 'strings', 'strip']] +
+              redirect_cmds
+      }
+  })
+  return tools
+
+def ParseComponentRevisionsFile(filename):
+  ''' Parse a simple-format deps file, with fields of the form:
+key=value
+Keys should match the keys in GIT_REPOS above, which match the previous
+directory names used by gclient (with the exception that '_' in the file is
+replaced by '-' in the returned key name).
+Values are the git hashes for each repo.
+Empty lines or lines beginning with '#' are ignored.
+This function returns a dictionary mapping the keys found in the file to their
+values.
+'''
+  with open(filename) as f:
+    deps = {}
+    for line in f:
+      stripped = line.strip()
+      if stripped.startswith('#') or len(stripped) == 0:
+        continue
+      tokens = stripped.split('=')
+      if len(tokens) != 2:
+        raise Exception('Malformed component revisions file: ' + filename)
+      deps[tokens[0].replace('_', '-')] = tokens[1]
+  return deps
+
+
+def GetSyncPNaClReposSource(revisions, GetGitSyncCmds):
+  sources = {}
+  for repo, revision in revisions.iteritems():
+    sources['legacy_pnacl_%s_src' % repo] = {
+        'type': 'source',
+        'output_dirname': os.path.join(NACL_DIR, 'pnacl', 'git', repo),
+        'commands': GetGitSyncCmds(repo),
+    }
+  return sources
+
+
+def InstallMinGWHostCompiler():
+  """Install the MinGW host compiler used to build the host tools on Windows.
+
+  We could use an ordinary source rule for this, but that would require hashing
+  hundreds of MB of toolchain files on every build. Instead, check for the
+  presence of the specially-named file <version>.installed in the install
+  directory. If it is absent, check for the presence of the zip file
+  <version>.zip. If it is absent, attempt to download it from Google Storage.
+  Then extract the zip file and create the install file.
+  """
+  if not os.path.isfile(os.path.join(MINGW_PATH, MINGW_VERSION + '.installed')):
+    downloader = pynacl.gsd_storage.GSDStorage([], ['nativeclient-mingw'])
+    zipfilename = MINGW_VERSION + '.zip'
+    zipfilepath = os.path.join(NACL_DIR, zipfilename)
+    # If the zip file is not present, try to download it from Google Storage.
+    # If that fails, bail out.
+    if (not os.path.isfile(zipfilepath) and
+        not downloader.GetSecureFile(zipfilename, zipfilepath)):
+        print >>sys.stderr, 'Failed to install MinGW tools:'
+        print >>sys.stderr, 'could not find or download', zipfilename
+        sys.exit(1)
+    logging.info('Extracting %s' % zipfilename)
+    zf = zipfile.ZipFile(zipfilepath)
+    if os.path.exists(MINGW_PATH):
+      shutil.rmtree(MINGW_PATH)
+    zf.extractall(NACL_DIR)
+    with open(os.path.join(MINGW_PATH, MINGW_VERSION + '.installed'), 'w') as _:
+      pass
+  os.environ['MINGW'] = MINGW_PATH
+
+
+def GetUploadPackageTargets():
+  """Package Targets describes all the archived package targets.
+
+  This build can be built among many build bots, but eventually all things
+  will be combined together. This package target dictionary describes the final
+  output of the entire build.
+  """
+  package_targets = {}
+
+  common_packages = ['metadata']
+
+  # Target translator libraries
+  for arch in TRANSLATOR_ARCHES:
+    legal_arch = pynacl.gsd_storage.LegalizeName(arch)
+    common_packages.append('libs_support_translator_%s' % legal_arch)
+    common_packages.append('compiler_rt_%s' % legal_arch)
+    if not 'nonsfi' in arch:
+      common_packages.append('libgcc_eh_%s' % legal_arch)
+
+  # Target libraries
+  for bias in BITCODE_BIASES:
+    legal_bias = pynacl.gsd_storage.LegalizeName(bias)
+    common_packages.append('newlib_%s' % legal_bias)
+    common_packages.append('libcxx_%s' % legal_bias)
+    common_packages.append('libstdcxx_%s' % legal_bias)
+    common_packages.append('libs_support_%s' % legal_bias)
+
+  # Direct-to-nacl target libraries
+  for arch in DIRECT_TO_NACL_ARCHES:
+    common_packages.append('newlib_%s' % arch)
+    common_packages.append('libcxx_%s' % arch)
+    common_packages.append('libs_support_%s' % arch)
+
+  # Host components
+  host_packages = {}
+  for os_name, arch in (('win', 'x86-32'),
+                        ('mac', 'x86-64'),
+                        ('linux', 'x86-64')):
+    triple = pynacl.platform.PlatformTriple(os_name, arch)
+    legal_triple = pynacl.gsd_storage.LegalizeName(triple)
+    host_packages.setdefault(os_name, []).extend(
+        ['binutils_pnacl_%s' % legal_triple,
+         'binutils_x86_%s' % legal_triple,
+         'llvm_%s' % legal_triple,
+         'driver_%s' % legal_triple])
+    if os_name != 'win':
+      host_packages[os_name].append('libcxx_%s' % legal_triple)
+
+  # Unsandboxed target IRT libraries
+  for os_name in ('linux', 'mac'):
+    legal_triple = pynacl.gsd_storage.LegalizeName('x86-32-' + os_name)
+    host_packages[os_name].append('unsandboxed_irt_%s' % legal_triple)
+
+  for os_name, os_packages in host_packages.iteritems():
+    package_target = '%s_x86' % pynacl.platform.GetOS(os_name)
+    package_targets[package_target] = {}
+    package_name = 'pnacl_newlib'
+    combined_packages = os_packages + common_packages
+    package_targets[package_target][package_name] = combined_packages
+
+  return package_targets
+
+if __name__ == '__main__':
+  # This sets the logging for gclient-alike repo sync. It will be overridden
+  # by the package builder based on the command-line flags.
+  logging.getLogger().setLevel(logging.DEBUG)
+  parser = argparse.ArgumentParser(add_help=False)
+  parser.add_argument('--legacy-repo-sync', action='store_true',
+                      dest='legacy_repo_sync', default=False,
+                      help='Sync the git repo directories used by build.sh')
+  parser.add_argument('--disable-llvm-assertions', action='store_false',
+                      dest='enable_llvm_assertions', default=True)
+  parser.add_argument('--cmake', action='store_true', default=False,
+                      help="Use LLVM's cmake ninja build instead of autoconf")
+  parser.add_argument('--gcc', action='store_true', default=False,
+                      help="Use the default compiler 'cc' instead of clang")
+  parser.add_argument('--sanitize', choices=['address', 'thread', 'memory',
+                                             'undefined'],
+                      help="Use a sanitizer with LLVM's clang cmake build")
+  parser.add_argument('--testsuite-sync', action='store_true', default=False,
+                      help=('Sync the sources for the LLVM testsuite. '
+                      'Only useful if --sync/ is also enabled'))
+  args, leftover_args = parser.parse_known_args()
+  if '-h' in leftover_args or '--help' in leftover_args:
+    print 'The following arguments are specific to toolchain_build_pnacl.py:'
+    parser.print_help()
+    print 'The rest of the arguments are generic, in toolchain_main.py'
+
+  if args.sanitize and not args.cmake:
+    print 'Use of sanitizers requires a cmake build'
+    sys.exit(1)
+
+  if args.gcc and args.cmake:
+    print 'gcc build is not supported with cmake'
+    sys.exit(1)
+
+  packages = {}
+  upload_packages = {}
+
+  rev = ParseComponentRevisionsFile(GIT_DEPS_FILE)
+  if args.legacy_repo_sync:
+    packages = GetSyncPNaClReposSource(rev, GetGitSyncCmdsCallback(rev))
+
+    # Make sure sync is inside of the args to toolchain_main.
+    if not set(['-y', '--sync', '--sync-only']).intersection(leftover_args):
+      leftover_args.append('--sync-only')
+  else:
+    upload_packages = GetUploadPackageTargets()
+    if pynacl.platform.IsWindows():
+      InstallMinGWHostCompiler()
+
+    packages.update(HostToolsSources(GetGitSyncCmdsCallback(rev)))
+    if args.testsuite_sync:
+      packages.update(TestsuiteSources(GetGitSyncCmdsCallback(rev)))
+
+    hosts = [pynacl.platform.PlatformTriple()]
+    if pynacl.platform.IsLinux() and BUILD_CROSS_MINGW:
+      hosts.append(pynacl.platform.PlatformTriple('win', 'x86-32'))
+    for host in hosts:
+      packages.update(HostLibs(host, args))
+      packages.update(HostTools(host, args))
+      packages.update(HostToolsDirectToNacl(host))
+    packages.update(TargetLibCompiler(pynacl.platform.PlatformTriple(), args))
+    # Don't build the target libs on Windows because of pathname issues.
+    # Only the linux64 bot is canonical (i.e. it will upload its packages).
+    # The other bots will use a 'work' target instead of a 'build' target for
+    # the target libs, so they will not be memoized, but can be used for tests.
+    # TODO(dschuff): Even better would be if we could memoize non-canonical
+    # build targets without doing things like mangling their names (and for e.g.
+    # scons tests, skip running them if their dependencies haven't changed, like
+    # build targets)
+    is_canonical = pynacl.platform.IsLinux64()
+    if pynacl.platform.IsLinux() or pynacl.platform.IsMac():
+      packages.update(pnacl_targetlibs.TargetLibsSrc(
+        GetGitSyncCmdsCallback(rev)))
+      for bias in BITCODE_BIASES:
+        packages.update(pnacl_targetlibs.TargetLibs(bias, is_canonical))
+      for arch in DIRECT_TO_NACL_ARCHES:
+        packages.update(pnacl_targetlibs.TargetLibs(arch, is_canonical))
+      for arch in TRANSLATOR_ARCHES:
+        packages.update(pnacl_targetlibs.TranslatorLibs(arch, is_canonical))
+      packages.update(Metadata(rev))
+    if pynacl.platform.IsLinux() or pynacl.platform.IsMac():
+      packages.update(pnacl_targetlibs.UnsandboxedIRT(
+          'x86-32-%s' % pynacl.platform.GetOS()))
+
+
+  tb = toolchain_main.PackageBuilder(packages,
+                                     upload_packages,
+                                     leftover_args)
+  tb.Main()

@@ -1,0 +1,71 @@
+# -*- python -*-
+# Copyright 2014 The Native Client Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+Import('env')
+
+# Tests in this directory are for syscall wrappers required by newlib
+# based non-SFI nacl_helper. The rest of NaCl does not need them.
+if not env.Bit('nonsfi_nacl') or env.Bit('tests_use_irt'):
+  Return()
+
+nexe = env.ComponentProgram('fcntl_test',
+                            'fcntl_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('fcntl_test.out', nexe,
+                                 args=[env.MakeEmptyFile(prefix='tmp_fcntl')])
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_fcntl_test')
+
+nexe = env.ComponentProgram('fork_test',
+                            'fork_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('fork_test.out', nexe)
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_fork_test')
+
+nexe = env.ComponentProgram('socket_test',
+                            'socket_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('socket_test.out', nexe)
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_socket_test')
+
+nexe = env.ComponentProgram('prctl_test',
+                            'prctl_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('prctl_test.out', nexe)
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_prctl_test')
+
+nexe = env.ComponentProgram('sigaction_test',
+                            'sigaction_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('sigaction_test.out', nexe)
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_sigaction_test')
+
+nexe = env.ComponentProgram('signal_test',
+                            'signal_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('signal_test.out', nexe)
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_signal_test',
+                       is_broken=env.UsingEmulator())
+
+nexe = env.ComponentProgram('signal_sigbus_test',
+                            'signal_sigbus_test.cc',
+                            EXTRA_LIBS=['${NONIRT_LIBS}'])
+
+node = env.CommandSelLdrTestNacl('signal_sigbus_test.out', nexe,
+                                 args=[env.File('test_file')])
+
+env.AddNodeToTestSuite(node, ['small_tests'], 'run_signal_sigbus_test',
+                       is_broken=env.UsingEmulator())

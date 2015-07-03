@@ -1,0 +1,110 @@
+// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_H_
+#define CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_H_
+
+#include "chrome/browser/ui/views/profiles/new_avatar_button.h"
+#include "ui/views/window/non_client_view.h"
+
+#if defined(ENABLE_MANAGED_USERS)
+class SupervisedUserAvatarLabel;
+#endif
+class AvatarMenuButton;
+class BrowserFrame;
+class BrowserView;
+class NewAvatarButton;
+
+// A specialization of the NonClientFrameView object that provides additional
+// Browser-specific methods.
+class BrowserNonClientFrameView : public views::NonClientFrameView,
+                                  public ProfileInfoCacheObserver {
+ public:
+  BrowserNonClientFrameView(BrowserFrame* frame, BrowserView* browser_view);
+  ~BrowserNonClientFrameView() override;
+
+  AvatarMenuButton* avatar_button() const { return avatar_button_; }
+
+  NewAvatarButton* new_avatar_button() const { return new_avatar_button_; }
+
+#if defined(ENABLE_MANAGED_USERS)
+  SupervisedUserAvatarLabel* supervised_user_avatar_label() const {
+    return supervised_user_avatar_label_;
+  }
+
+  void OnThemeChanged() override;
+#endif
+
+  // Retrieves the bounds, in non-client view coordinates within which the
+  // TabStrip should be laid out.
+  virtual gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const = 0;
+
+  // Returns the inset of the topmost view in the client view from the top of
+  // the non-client view. The topmost view depends on the window type. The
+  // topmost view is the tab strip for tabbed browser windows, the toolbar for
+  // popups, the web contents for app windows and varies for fullscreen windows.
+  virtual int GetTopInset() const = 0;
+
+  // Returns the amount that the theme background should be inset.
+  virtual int GetThemeBackgroundXInset() const = 0;
+
+  // Updates the throbber.
+  virtual void UpdateThrobber(bool running) = 0;
+
+  // Overriden from views::View.
+  void VisibilityChanged(views::View* starting_from, bool is_visible) override;
+
+ protected:
+  BrowserView* browser_view() const { return browser_view_; }
+  BrowserFrame* frame() const { return frame_; }
+
+  // Updates the title and icon of the avatar button.
+  void UpdateAvatarInfo();
+
+  // Updates the title of the avatar button displayed in the caption area.
+  // The button uses |style| to match the browser window style and notifies
+  // |listener| when it is clicked.
+  void UpdateNewStyleAvatarInfo(views::ButtonListener* listener,
+                                const NewAvatarButton::AvatarButtonStyle style);
+
+ private:
+  // Draws a taskbar icon if avatar are enabled, erases it otherwise.  If
+  // |taskbar_badge_avatar| is NULL, then |avatar| is used.
+  void DrawTaskbarDecoration(const gfx::Image& avatar,
+                             const gfx::Image& taskbar_badge_avatar);
+
+  // Overriden from ProfileInfoCacheObserver.
+  void OnProfileAdded(const base::FilePath& profile_path) override;
+  void OnProfileWasRemoved(const base::FilePath& profile_path,
+                           const base::string16& profile_name) override;
+  void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
+
+  // The frame that hosts this view.
+  BrowserFrame* frame_;
+
+  // The BrowserView hosted within this View.
+  BrowserView* browser_view_;
+
+  // Menu button that displays that either the incognito icon or the profile
+  // icon.  May be NULL for some frame styles.
+  AvatarMenuButton* avatar_button_;
+
+#if defined(ENABLE_MANAGED_USERS)
+  SupervisedUserAvatarLabel* supervised_user_avatar_label_;
+#endif
+
+  // Menu button that displays the name of the active or guest profile.
+  // May be NULL and will not be displayed for off the record profiles.
+  NewAvatarButton* new_avatar_button_;
+};
+
+namespace chrome {
+
+// Provided by a browser_non_client_frame_view_factory_*.cc implementation
+BrowserNonClientFrameView* CreateBrowserNonClientFrameView(
+    BrowserFrame* frame, BrowserView* browser_view);
+
+}  // namespace chrome
+
+#endif  // CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_H_

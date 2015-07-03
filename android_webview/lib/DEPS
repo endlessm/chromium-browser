@@ -1,0 +1,6 @@
+include_rules = [
+  "+cc/base/switches.h",
+  "+components",  # For jni registers.
+  "+content/public",
+  "+media/base/media_switches.h",  # For media command line switches.
+]

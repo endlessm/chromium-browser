@@ -1,0 +1,27 @@
+#!/usr/bin/env python
+# Copyright 2014 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""This script runs unit tests for code in gpu_tests/ that does telemetry
+performance measurement.
+
+This script DOES NOT run benchmarks. run_gpu_tests does that.
+"""
+
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__),
+    os.pardir, os.pardir, os.pardir, 'tools', 'telemetry'))
+
+from telemetry.unittest import gtest_progress_reporter
+from telemetry.unittest import run_tests
+
+
+if __name__ == '__main__':
+  base_dir = os.path.dirname(os.path.realpath(__file__))
+  progress_reporters = [
+      gtest_progress_reporter.GTestProgressReporter(sys.stdout)]
+  run_tests.config = run_tests.Config(base_dir, [base_dir], progress_reporters)
+  sys.exit(run_tests.RunTestsCommand.main())

@@ -1,0 +1,13 @@
+# Apps team members
+asargent@chromium.org
+benwells@chromium.org
+kalman@chromium.org
+mek@chromium.org
+miket@chromium.org
+scheib@chromium.org
+tapted@chromium.org
+yoz@chromium.org
+
+# app_shell team
+per-file apps.gypi=derat@chromium.org
+per-file apps.gypi=jamescook@chromium.org

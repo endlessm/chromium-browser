@@ -1,0 +1,33 @@
+include_rules = [
+  "+components/nacl",
+  "+content/public/app/startup_helper_win.h",
+  "+crypto",
+  "+sandbox/linux/bpf_dsl",
+  "+sandbox/linux/seccomp-bpf",
+  "+sandbox/linux/seccomp-bpf-helpers",
+  "+sandbox/linux/services",
+  "+sandbox/linux/suid",
+  "+sandbox/win/src",
+  "+ppapi/c",  # header files only
+
+  "+native_client/src/include",
+  "+native_client/src/public",
+  "+native_client/src/shared/platform/nacl_host_desc.h",
+  "+native_client/src/shared/srpc/nacl_srpc.h",
+  "+native_client/src/trusted/desc",
+  "+native_client/src/trusted/service_runtime/include",
+  "+native_client/src/trusted/service_runtime/nacl_error_code.h",
+  "+native_client/src/trusted/validator/rich_file_info.h",
+  "+native_client/src/trusted/validator/validation_cache.h",
+  "+native_client/src/untrusted/irt/irt.h",
+
+  # For message scanning and handle conversion in nacl_ipc_adapter.cc:
+  "+ppapi/proxy/nacl_message_scanner.h",
+  "+ppapi/proxy/serialized_handle.h",
+
+  # For setting FDs in non-SFI mode.
+  "+ppapi/nacl_irt",
+
+  # For sending PpapiHostMsg_ChannelCreated in nacl_ipc_adapter.cc:
+  "+ppapi/proxy/ppapi_messages.h"
+]

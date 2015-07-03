@@ -1,0 +1,20 @@
+include_rules = [
+  "+components/bookmarks",
+  "+components/keyed_service",
+  "+components/pref_registry",
+  "+components/signin",
+  "+google_apis/gaia",
+  "+jni",
+  "+net",
+  "+sql",
+  "+ui",
+]
+
+specific_include_rules = {
+  "image_store_unittest\.cc": [
+    "+third_party/skia"
+  ],
+  "test_image_store\.cc": [
+    "+third_party/skia"
+  ],
+}

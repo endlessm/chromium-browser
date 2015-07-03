@@ -1,0 +1,135 @@
+<!--
+Copyright 2014 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<!--
+This file is used to generate a comprehensive list of Chrome rappor metrics
+along with a detailed description for each histogram. See the design doc at
+http://www.chromium.org/developers/design-documents/rappor
+for a description of rappor metrics.
+
+TODO(holte): Add validation and pretty printing scripts.
+-->
+
+<rappor-configuration>
+
+<!--
+Parameters that rappor metrics can be collected with.  This list should be
+kept in sync with parameter type definitions in
+components/rappor/rappor_service.cc.
+-->
+
+<rappor-parameter-types>
+
+<rappor-parameters name="ETLD_PLUS_ONE">
+  <summary>
+    Parameters suitable for collecting the domain and registry of a URL from
+    UMA opt-in users.
+  </summary>
+  <parameters num-cohorts="128"
+              bytes="16"
+              hash-functions="2"
+              fake-prob=".5"
+              fake-one-prob=".5"
+              one-coin-prob=".75"
+              zero-coin-prob=".25"
+              reporting-level="FINE">
+  </parameters>
+</rappor-parameters>
+
+<rappor-parameters name="COARSE_RAPPOR_TYPE">
+  <summary>
+    Stricter parameters for metrics collected from a broader population.
+  </summary>
+  <parameters num-cohorts="128"
+              bytes="1"
+              hash-functions="2"
+              fake-prob=".5"
+              fake-one-prob=".5"
+              one-coin-prob=".75"
+              zero-coin-prob=".25"
+              reporting-level="COARSE">
+</rappor-parameters>
+
+</rappor-parameter-types>
+
+<!-- Rappor metric definitions -->
+
+<rappor-metrics>
+
+<rappor-metric name="Extensions.PossibleAdInjection2" type="ETLD_PLUS_ONE">
+  <owner>rdevlin.cronin@chromium.org</owner>
+  <summary>
+    The eTLD+1 of a URL that might be doing ad injection.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Search.DefaultSearchProvider" type="ETLD_PLUS_ONE">
+  <owner>holte@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL for the default search engine.
+    Recorded when a profile is opened or after a profile reset.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Settings.FirstStartupPage" type="ETLD_PLUS_ONE">
+  <owner>holte@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL of the first page opened on startup.
+    Recorded when a profile is loaded if preferences specify a fixed set of URLs
+    to open on startup.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Settings.HomePage2" type="ETLD_PLUS_ONE">
+  <owner>holte@chromium.org</owner>
+  <summary>
+    The eTLD+1 of the prefs::kHomePage setting.  Recorded when a profile is
+    loaded if the URL is valid and prefs::kHomePageIsNewTabPage is false.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Settings.NewTabPage" type="ETLD_PLUS_ONE">
+  <owner>holte@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL chrome://newtab is rewritten to.
+    Recorded when a profile is loaded, if the URL is valid.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Plugins.SilverlightOriginUrl" type="ETLD_PLUS_ONE">
+  <owner>wfh@chromium.org</owner>
+  <summary>
+    The domain and registry of the top level URL of a page which attempts to
+    launch a Silverlight NPAPI plugin, if the client has Silverlight installed
+    and enabled. Recorded when the plugin frame appears for each Silverlight
+    object found on the page, even if the plugin is click-to-play.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Plugins.FlashUrl" type="ETLD_PLUS_ONE">
+  <owner>wfh@chromium.org</owner>
+  <summary>
+    The domain and registry of the URL from where Flash SWF or SPL content is
+    being loaded from, while attempting to launch a Flash (NPAPI or PPAPI)
+    plugin that is installed and enabled.  Recorded when the plugin frame
+    appears for each Flash object found in the page, even if the plugin is
+    click-to-play.
+  </summary>
+</rappor-metric>
+
+<rappor-metric name="Plugins.FlashOriginUrl" type="ETLD_PLUS_ONE">
+  <owner>wfh@chromium.org</owner>
+  <summary>
+    The domain and registry of the top level URL of a page which attempts to
+    launch a Flash NPAPI or PPAPI plugin, if the client has Flash installed
+    and enabled. Recorded when the plugin frame appears for each Flash object
+    found on the page, even if the plugin is click-to-play.
+  </summary>
+</rappor-metric>
+
+</rappor-metrics>
+
+</rappor-configuration>

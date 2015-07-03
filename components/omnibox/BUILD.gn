@@ -1,0 +1,89 @@
+# Copyright 2014 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+static_library("omnibox") {
+  sources = [
+    "answers_cache.h",
+    "answers_cache.cc",
+    "autocomplete_input.cc",
+    "autocomplete_input.h",
+    "autocomplete_match.cc",
+    "autocomplete_match.h",
+    "autocomplete_match_type.cc",
+    "autocomplete_match_type.h",
+    "autocomplete_provider.cc",
+    "autocomplete_provider.h",
+    "autocomplete_result.cc",
+    "autocomplete_result.h",
+    "autocomplete_scheme_classifier.h",
+    "base_search_provider.cc",
+    "base_search_provider.h",
+    "keyword_extensions_delegate.cc",
+    "keyword_extensions_delegate.h",
+    "keyword_provider.cc",
+    "keyword_provider.h",
+    "omnibox_field_trial.cc",
+    "omnibox_field_trial.h",
+    "omnibox_switches.cc",
+    "omnibox_switches.h",
+    "search_provider.cc",
+    "search_provider.h",
+    "search_suggestion_parser.cc",
+    "search_suggestion_parser.h",
+    "suggestion_answer.cc",
+    "suggestion_answer.h",
+    "url_prefix.cc",
+    "url_prefix.h",
+  ]
+
+  public_deps = [
+    "//components/metrics/proto",
+  ]
+  deps = [
+    "//base",
+    "//components/resources",
+    "//components/search_engines",
+    "//components/strings",
+    "//components/url_fixer",
+    "//components/variations",
+    "//components/variations/net",
+    "//net",
+    "//ui/base",
+    "//url",
+  ]
+}
+
+static_library("test_support") {
+  sources = [
+    "test_scheme_classifier.cc",
+    "test_scheme_classifier.h",
+  ]
+
+  deps = [
+    ":omnibox",
+    "//base",
+    "//components/metrics/proto",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "answers_cache_unittest.cc",
+    "autocomplete_input_unittest.cc",
+    "autocomplete_match_unittest.cc",
+    "autocomplete_result_unittest.cc",
+    "base_search_provider_unittest.cc",
+    "keyword_provider_unittest.cc",
+    "omnibox_field_trial_unittest.cc",
+    "suggestion_answer_unittest.cc",
+  ]
+
+  deps = [
+    ":omnibox",
+    ":test_support",
+    "//testing/gmock",
+    "//testing/gtest",
+  ]
+}

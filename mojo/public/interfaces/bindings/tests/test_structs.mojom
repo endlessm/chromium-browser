@@ -1,0 +1,139 @@
+// Copyright 2013 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+[JavaPackage="org.chromium.mojo.bindings.test.mojom.test_structs"]
+module mojo.test;
+
+import "mojo/public/interfaces/bindings/tests/rect.mojom";
+
+struct NamedRegion {
+  string? name;
+  array<Rect>? rects;
+};
+
+struct RectPair {
+  Rect? first;
+  Rect? second;
+};
+
+struct EmptyStruct {
+};
+
+// Used to verify that struct fields which don't specify a deafult are
+// initialized to: false for bool, 0 for numbers, and null for strings,
+// handles, and structs. The "?" nullable suffix shouldn't have any 
+// impact on initial field values.
+
+struct NoDefaultFieldValues {
+  bool f0;
+  int8 f1;
+  uint8 f2;
+  int16 f3;
+  uint16 f4;
+  int32 f5;
+  uint32 f6;
+  int64 f7;
+  uint64 f8;
+  float f9;
+  double f10;
+  string f11;
+  string? f12;
+  handle<message_pipe> f13;
+  handle<data_pipe_consumer> f14;
+  handle<data_pipe_producer> f15;
+  handle<message_pipe>? f16;
+  handle<data_pipe_consumer>? f17;
+  handle<data_pipe_producer>? f18;
+  handle f19;
+  handle? f20;
+  handle<shared_buffer> f21;
+  handle<shared_buffer>? f22;
+  array<string> f23;
+  array<string?> f24;
+  array<string>? f25;
+  array<string?>? f26;
+  EmptyStruct f27;
+  EmptyStruct? f28;
+};
+
+// Used to verify that struct fields with an explicit default value
+// are initialized correctly. The "?" nullable suffix shouldn't have any 
+// impact on initial field values.
+
+struct DefaultFieldValues {
+  const string kFoo = "foo";
+  bool f0 = true;
+  int8 f1 = 100;
+  uint8 f2 = 100;
+  int16 f3 = 100;
+  uint16 f4 = 100;
+  int32 f5 = 100;
+  uint32 f6 = 100;
+  int64 f7 = 100;
+  uint64 f8 = 100;
+  float f9 = 100;
+  float f10 = 100.0;
+  double f11 = 100;
+  double f12 = 100.0;
+  string f13 = kFoo;
+  string? f14 = kFoo;
+  Rect f15 = default;
+  Rect? f16 = default;
+};
+
+
+// Used to verify that the code generated for enum and const values defined
+// within a struct is correct. Assuming that a constant's value can be a literal
+// or another constant and that enum values can either be an integer constant or
+// another value from the same enum type.
+
+struct ScopedConstants {
+  const int32 TEN = 10;
+  const int32 ALSO_TEN = TEN;
+  enum EType {
+    E0,
+    E1,
+    E2 = 10,
+    E3 = E2,
+    E4,
+  };
+  const int32 TEN_TOO = EType.E2;
+  EType f0 = E0; // 0
+  EType f1 = E1; // 1
+  EType f2 = E2; // 10
+  EType f3 = E3; // 10
+  EType f4 = E4; // 11
+  int32 f5 = TEN;
+  int32 f6 = ALSO_TEN;
+};
+
+// Used to verify that all possible Map key field types can be encoded and
+// decoded successfully.
+
+struct MapKeyTypes {
+  map<bool, bool> f0;
+  map<int8, int8> f1;
+  map<uint8, uint8> f2;
+  map<int16, int16> f3;
+  map<uint16, uint16> f4;
+  map<int32, int32> f5;
+  map<uint32, uint32> f6;
+  map<int64, int64> f7;
+  map<uint64, uint64> f8;
+  map<float, float> f9;
+  map<double, double> f10;
+  map<string, string> f11;
+};
+
+// Used to verify that some common or difficult value types can be encoded and
+// decoded successfully.
+
+struct MapValueTypes {
+  map<string, array<string>> f0;
+  map<string, array<string>?> f1;
+  map<string, array<string?>> f2;
+  map<string, array<string, 2>> f3;
+  map<string, array<array<string, 2>?>> f4;
+  map<string, array<array<string, 2>, 1>> f5;
+};

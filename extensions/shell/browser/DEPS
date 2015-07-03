@@ -1,0 +1,41 @@
+include_rules = [
+  "+chromeos",
+  "+components/keyed_service",
+  "+components/nacl/browser",
+  "+components/nacl/common",
+  "+components/omaha_query_params",
+  "+components/pref_registry",
+  "+components/user_prefs",
+  "+components/web_modal",
+  "+content/public/browser",
+
+  # Pieces of content_shell reused in app_shell.
+  "+content/shell/browser/shell_browser_context.h",
+  "+content/shell/browser/shell_devtools_manager_delegate.h",
+  "+content/shell/browser/shell_net_log.h",
+  "+content/shell/browser/shell_url_request_context_getter.h",
+
+  # For device backend support.
+  "+device/core",
+  "+device/hid",
+  "+device/usb",
+
+  "+google_apis/gaia",
+
+  "+net",
+
+  "+ppapi",
+  "+storage/browser/quota",
+  "+sync/api",
+
+  # Additional UI dependencies for app_shell. Note that no particular UI toolkit
+  # is supported; only Aura and some necessary bits to set up display surfaces.
+  "+ui/aura",
+  "+ui/chromeos",
+  "+ui/display",
+  "+ui/wm",
+
+  "+third_party/cros_system_api",
+
+  "-webkit",
+]

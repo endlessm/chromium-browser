@@ -1,0 +1,25 @@
+include_rules = [
+  "+breakpad",
+  "+chrome/browser",
+  "+chrome/installer",
+  "+chrome/plugin/chrome_content_plugin_client.h",
+  "+chrome/renderer/chrome_content_renderer_client.h",
+  "+chrome/utility/chrome_content_utility_client.h",
+  "+chrome_elf/chrome_elf_main.h",
+  "+chromeos/chromeos_paths.h",
+  "+chromeos/chromeos_switches.h",
+  "+components/component_updater",
+  "+components/content_settings/core/common/content_settings_pattern.h",
+  "+components/crash",
+  "+components/metrics/client_info.h",
+  "+components/nacl/common",
+  "+components/nacl/zygote",
+  "+components/startup_metric_utils",
+  "+content/public/app",
+  "+content/public/browser/browser_main_runner.h",
+  "+extensions/common/constants.h",
+  "+grit",  # For generated headers
+  "+native_client/src/trusted/service_runtime/osx",
+  "+policy",  # For generated headers and source
+  "+sandbox",
+]

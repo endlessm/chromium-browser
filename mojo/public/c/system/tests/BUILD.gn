@@ -1,0 +1,39 @@
+# Copyright 2014 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+source_set("tests") {
+  testonly = true
+  visibility = [ "//mojo/public/cpp/system/tests:mojo_public_system_unittests" ]
+
+  deps = [
+    "//mojo/public/c/environment",
+    "//mojo/public/c/system",
+    "//testing/gtest",
+  ]
+
+  sources = [
+    "core_unittest.cc",
+    "core_unittest_pure_c.c",
+    "macros_unittest.cc",
+  ]
+}
+
+# GYP version: mojo/mojo_base.gyp:mojo_public_system_perftests
+test("perftests") {
+  output_name = "mojo_public_system_perftests"
+
+  sources = [
+    "core_perftest.cc",
+  ]
+
+  deps = [
+    "//base",
+    "//mojo/edk/test:run_all_perftests",
+    "//mojo/public/c/environment",
+    "//mojo/public/cpp/system",
+    "//mojo/public/cpp/test_support:test_utils",
+    "//mojo/public/cpp/utility",
+    "//testing/gtest",
+  ]
+}

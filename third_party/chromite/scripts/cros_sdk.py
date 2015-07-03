@@ -1,0 +1,738 @@
+# Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""This script fetches and prepares an SDK chroot."""
+
+from __future__ import print_function
+
+import errno
+import glob
+import os
+import pwd
+import signal
+import sys
+import time
+import urlparse
+
+from chromite.cbuildbot import constants
+from chromite.lib import cgroups
+from chromite.lib import commandline
+from chromite.lib import cros_build_lib
+from chromite.lib import locking
+from chromite.lib import namespaces
+from chromite.lib import osutils
+from chromite.lib import retry_util
+from chromite.lib import toolchain
+
+cros_build_lib.STRICT_SUDO = True
+
+
+COMPRESSION_PREFERENCE = ('xz', 'bz2')
+
+# TODO(zbehan): Remove the dependency on these, reimplement them in python
+MAKE_CHROOT = [os.path.join(constants.SOURCE_ROOT,
+                            'src/scripts/sdk_lib/make_chroot.sh')]
+ENTER_CHROOT = [os.path.join(constants.SOURCE_ROOT,
+                             'src/scripts/sdk_lib/enter_chroot.sh')]
+
+# Proxy simulator configuration.
+PROXY_HOST_IP = '192.168.240.1'
+PROXY_PORT = 8080
+PROXY_GUEST_IP = '192.168.240.2'
+PROXY_NETMASK = 30
+PROXY_VETH_PREFIX = 'veth'
+PROXY_CONNECT_PORTS = (80, 443, 9418)
+PROXY_APACHE_FALLBACK_USERS = ('www-data', 'apache', 'nobody')
+PROXY_APACHE_MPMS = ('event', 'worker', 'prefork')
+PROXY_APACHE_FALLBACK_PATH = ':'.join(
+    '/usr/lib/apache2/mpm-%s' % mpm for mpm in PROXY_APACHE_MPMS
+)
+PROXY_APACHE_MODULE_GLOBS = ('/usr/lib*/apache2/modules', '/usr/lib*/apache2')
+
+# We need these tools to run. Very common tools (tar,..) are omitted.
+NEEDED_TOOLS = ('curl', 'xz')
+
+# Tools needed for --proxy-sim only.
+PROXY_NEEDED_TOOLS = ('ip',)
+
+
+def GetArchStageTarballs(version):
+  """Returns the URL for a given arch/version"""
+  extension = {'bz2':'tbz2', 'xz':'tar.xz'}
+  return [toolchain.GetSdkURL(suburl='cros-sdk-%s.%s'
+                              % (version, extension[compressor]))
+          for compressor in COMPRESSION_PREFERENCE]
+
+
+def GetStage3Urls(version):
+  return [toolchain.GetSdkURL(suburl='stage3-amd64-%s.tar.%s' % (version, ext))
+          for ext in COMPRESSION_PREFERENCE]
+
+
+def FetchRemoteTarballs(storage_dir, urls):
+  """Fetches a tarball given by url, and place it in |storage_dir|.
+
+  Args:
+    storage_dir: Path where to save the tarball.
+    urls: List of URLs to try to download. Download will stop on first success.
+
+  Returns:
+    Full path to the downloaded file
+  """
+
+  # Note we track content length ourselves since certain versions of curl
+  # fail if asked to resume a complete file.
+  # pylint: disable=C0301,W0631
+  # https://sourceforge.net/tracker/?func=detail&atid=100976&aid=3482927&group_id=976
+  for url in urls:
+    # http://www.logilab.org/ticket/8766
+    # pylint: disable=E1101
+    parsed = urlparse.urlparse(url)
+    tarball_name = os.path.basename(parsed.path)
+    if parsed.scheme in ('', 'file'):
+      if os.path.exists(parsed.path):
+        return parsed.path
+      continue
+    content_length = 0
+    print('Attempting download: %s' % url)
+    result = retry_util.RunCurl(
+          ['-I', url], redirect_stdout=True, redirect_stderr=True,
+          print_cmd=False)
+    successful = False
+    for header in result.output.splitlines():
+      # We must walk the output to find the string '200 OK' for use cases where
+      # a proxy is involved and may have pushed down the actual header.
+      if header.find('200 OK') != -1:
+        successful = True
+      elif header.lower().startswith("content-length:"):
+        content_length = int(header.split(":", 1)[-1].strip())
+        if successful:
+          break
+    if successful:
+      break
+  else:
+    raise Exception('No valid URLs found!')
+
+  tarball_dest = os.path.join(storage_dir, tarball_name)
+  current_size = 0
+  if os.path.exists(tarball_dest):
+    current_size = os.path.getsize(tarball_dest)
+    if current_size > content_length:
+      osutils.SafeUnlink(tarball_dest)
+      current_size = 0
+
+  if current_size < content_length:
+    retry_util.RunCurl(
+        ['-f', '-L', '-y', '30', '-C', '-', '--output', tarball_dest, url],
+        print_cmd=False)
+
+  # Cleanup old tarballs now since we've successfull fetched; only cleanup
+  # the tarballs for our prefix, or unknown ones.
+  ignored_prefix = ('stage3-' if tarball_name.startswith('cros-sdk-')
+                    else 'cros-sdk-')
+  for filename in os.listdir(storage_dir):
+    if filename == tarball_name or filename.startswith(ignored_prefix):
+      continue
+
+    print('Cleaning up old tarball: %s' % (filename,))
+    osutils.SafeUnlink(os.path.join(storage_dir, filename))
+
+  return tarball_dest
+
+
+def CreateChroot(chroot_path, sdk_tarball, cache_dir, nousepkg=False):
+  """Creates a new chroot from a given SDK"""
+
+  cmd = MAKE_CHROOT + ['--stage3_path', sdk_tarball,
+                       '--chroot', chroot_path,
+                       '--cache_dir', cache_dir]
+  if nousepkg:
+    cmd.append('--nousepkg')
+
+  try:
+    cros_build_lib.RunCommand(cmd, print_cmd=False)
+  except cros_build_lib.RunCommandError:
+    raise SystemExit('Running %r failed!' % cmd)
+
+
+def DeleteChroot(chroot_path):
+  """Deletes an existing chroot"""
+  cmd = MAKE_CHROOT + ['--chroot', chroot_path,
+                       '--delete']
+  try:
+    cros_build_lib.RunCommand(cmd, print_cmd=False)
+  except cros_build_lib.RunCommandError:
+    raise SystemExit('Running %r failed!' % cmd)
+
+
+def EnterChroot(chroot_path, cache_dir, chrome_root, chrome_root_mount,
+                additional_args):
+  """Enters an existing SDK chroot"""
+  st = os.statvfs(os.path.join(chroot_path, 'usr', 'bin', 'sudo'))
+  # The os.ST_NOSUID constant wasn't added until python-3.2.
+  if st.f_flag & 0x2:
+    cros_build_lib.Die('chroot cannot be in a nosuid mount')
+
+  cmd = ENTER_CHROOT + ['--chroot', chroot_path, '--cache_dir', cache_dir]
+  if chrome_root:
+    cmd.extend(['--chrome_root', chrome_root])
+  if chrome_root_mount:
+    cmd.extend(['--chrome_root_mount', chrome_root_mount])
+  if len(additional_args) > 0:
+    cmd.append('--')
+    cmd.extend(additional_args)
+
+  ret = cros_build_lib.RunCommand(cmd, print_cmd=False, error_code_ok=True)
+  # If we were in interactive mode, ignore the exit code; it'll be whatever
+  # they last ran w/in the chroot and won't matter to us one way or another.
+  # Note this does allow chroot entrance to fail and be ignored during
+  # interactive; this is however a rare case and the user will immediately
+  # see it (nor will they be checking the exit code manually).
+  if ret.returncode != 0 and additional_args:
+    raise SystemExit('Running %r failed with exit code %i'
+                     % (cmd, ret.returncode))
+
+
+def _SudoCommand():
+  """Get the 'sudo' command, along with all needed environment variables."""
+
+  # Pass in the ENVIRONMENT_WHITELIST and ENV_PASSTHRU variables so that
+  # scripts in the chroot know what variables to pass through.
+  cmd = ['sudo']
+  for key in constants.CHROOT_ENVIRONMENT_WHITELIST + constants.ENV_PASSTHRU:
+    value = os.environ.get(key)
+    if value is not None:
+      cmd += ['%s=%s' % (key, value)]
+
+  # Pass in the path to the depot_tools so that users can access them from
+  # within the chroot.
+  cmd += ['DEPOT_TOOLS=%s' % constants.DEPOT_TOOLS_DIR]
+
+  return cmd
+
+
+def _ReportMissing(missing):
+  """Report missing utilities, then exit.
+
+  Args:
+    missing: List of missing utilities, as returned by
+             osutils.FindMissingBinaries.  If non-empty, will not return.
+  """
+
+  if missing:
+    raise SystemExit(
+        'The tool(s) %s were not found.\n'
+        'Please install the appropriate package in your host.\n'
+        'Example(ubuntu):\n'
+        '  sudo apt-get install <packagename>'
+        % ', '.join(missing))
+
+
+def _ProxySimSetup(options):
+  """Set up proxy simulator, and return only in the child environment.
+
+  TODO: Ideally, this should support multiple concurrent invocations of
+  cros_sdk --proxy-sim; currently, such invocations will conflict with each
+  other due to the veth device names and IP addresses.  Either this code would
+  need to generate fresh, unused names for all of these before forking, or it
+  would need to support multiple concurrent cros_sdk invocations sharing one
+  proxy and allowing it to exit when unused (without counting on any local
+  service-management infrastructure on the host).
+  """
+
+  may_need_mpm = False
+  apache_bin = osutils.Which('apache2')
+  if apache_bin is None:
+    apache_bin = osutils.Which('apache2', PROXY_APACHE_FALLBACK_PATH)
+    if apache_bin is None:
+      _ReportMissing(('apache2',))
+  else:
+    may_need_mpm = True
+
+  # Module names and .so names included for ease of grepping.
+  apache_modules = [('proxy_module', 'mod_proxy.so'),
+                    ('proxy_connect_module', 'mod_proxy_connect.so'),
+                    ('proxy_http_module', 'mod_proxy_http.so'),
+                    ('proxy_ftp_module', 'mod_proxy_ftp.so')]
+
+  # Find the apache module directory, and make sure it has the modules we need.
+  module_dirs = {}
+  for g in PROXY_APACHE_MODULE_GLOBS:
+    for mod, so in apache_modules:
+      for f in glob.glob(os.path.join(g, so)):
+        module_dirs.setdefault(os.path.dirname(f), []).append(so)
+  for apache_module_path, modules_found in module_dirs.iteritems():
+    if len(modules_found) == len(apache_modules):
+      break
+  else:
+    # Appease cros lint, which doesn't understand that this else block will not
+    # fall through to the subsequent code which relies on apache_module_path.
+    apache_module_path = None
+    raise SystemExit(
+        'Could not find apache module path containing all required modules: %s'
+            % ', '.join(so for mod, so in apache_modules))
+
+  def check_add_module(name):
+    so = 'mod_%s.so' % name
+    if os.access(os.path.join(apache_module_path, so), os.F_OK):
+      mod = '%s_module' % name
+      apache_modules.append((mod, so))
+      return True
+    return False
+
+  check_add_module('authz_core')
+  if may_need_mpm:
+    for mpm in PROXY_APACHE_MPMS:
+      if check_add_module('mpm_%s' % mpm):
+        break
+
+  veth_host = '%s-host' % PROXY_VETH_PREFIX
+  veth_guest = '%s-guest' % PROXY_VETH_PREFIX
+
+  # Set up pipes from parent to child and vice versa.
+  # The child writes a byte to the parent after calling unshare, so that the
+  # parent can then assign the guest end of the veth interface to the child's
+  # new network namespace.  The parent then writes a byte to the child after
+  # assigning the guest interface, so that the child can then configure that
+  # interface.  In both cases, if we get back an EOF when reading from the
+  # pipe, we assume the other end exited with an error message, so just exit.
+  parent_readfd, child_writefd = os.pipe()
+  child_readfd, parent_writefd = os.pipe()
+  SUCCESS_FLAG = '+'
+
+  pid = os.fork()
+  if not pid:
+    os.close(parent_readfd)
+    os.close(parent_writefd)
+
+    namespaces.Unshare(namespaces.CLONE_NEWNET)
+    os.write(child_writefd, SUCCESS_FLAG)
+    os.close(child_writefd)
+    if os.read(child_readfd, 1) != SUCCESS_FLAG:
+      # Parent failed; it will have already have outputted an error message.
+      sys.exit(1)
+    os.close(child_readfd)
+
+    # Set up child side of the network.
+    commands = (
+      ('ip', 'address', 'add',
+       '%s/%u' % (PROXY_GUEST_IP, PROXY_NETMASK),
+       'dev', veth_guest),
+      ('ip', 'link', 'set', veth_guest, 'up'),
+    )
+    try:
+      for cmd in commands:
+        cros_build_lib.RunCommand(cmd, print_cmd=False)
+    except cros_build_lib.RunCommandError:
+      raise SystemExit('Running %r failed!' % (cmd,))
+
+    proxy_url = 'http://%s:%u' % (PROXY_HOST_IP, PROXY_PORT)
+    for proto in ('http', 'https', 'ftp'):
+      os.environ[proto + '_proxy'] = proxy_url
+    for v in ('all_proxy', 'RSYNC_PROXY', 'no_proxy'):
+      os.environ.pop(v, None)
+    return
+
+  os.close(child_readfd)
+  os.close(child_writefd)
+
+  if os.read(parent_readfd, 1) != SUCCESS_FLAG:
+    # Child failed; it will have already have outputted an error message.
+    sys.exit(1)
+  os.close(parent_readfd)
+
+  # Set up parent side of the network.
+  uid = int(os.environ.get('SUDO_UID', '0'))
+  gid = int(os.environ.get('SUDO_GID', '0'))
+  if uid == 0 or gid == 0:
+    for username in PROXY_APACHE_FALLBACK_USERS:
+      try:
+        pwnam = pwd.getpwnam(username)
+        uid, gid = pwnam.pw_uid, pwnam.pw_gid
+        break
+      except KeyError:
+        continue
+    if uid == 0 or gid == 0:
+      raise SystemExit('Could not find a non-root user to run Apache as')
+
+  chroot_parent, chroot_base = os.path.split(options.chroot)
+  pid_file = os.path.join(chroot_parent, '.%s-apache-proxy.pid' % chroot_base)
+  log_file = os.path.join(chroot_parent, '.%s-apache-proxy.log' % chroot_base)
+
+  apache_directives = [
+    'User #%u' % uid,
+    'Group #%u' % gid,
+    'PidFile %s' % pid_file,
+    'ErrorLog %s' % log_file,
+    'Listen %s:%u' % (PROXY_HOST_IP, PROXY_PORT),
+    'ServerName %s' % PROXY_HOST_IP,
+    'ProxyRequests On',
+    'AllowCONNECT %s' % ' '.join(map(str, PROXY_CONNECT_PORTS)),
+  ] + [
+    'LoadModule %s %s' % (mod, os.path.join(apache_module_path, so))
+    for (mod, so) in apache_modules
+  ]
+  commands = (
+    ('ip', 'link', 'add', 'name', veth_host,
+     'type', 'veth', 'peer', 'name', veth_guest),
+    ('ip', 'address', 'add',
+     '%s/%u' % (PROXY_HOST_IP, PROXY_NETMASK),
+     'dev', veth_host),
+    ('ip', 'link', 'set', veth_host, 'up'),
+    [apache_bin, '-f', '/dev/null']
+        + [arg for d in apache_directives for arg in ('-C', d)],
+    ('ip', 'link', 'set', veth_guest, 'netns', str(pid)),
+  )
+  cmd = None # Make cros lint happy.
+  try:
+    for cmd in commands:
+      cros_build_lib.RunCommand(cmd, print_cmd=False)
+  except cros_build_lib.RunCommandError:
+    # Clean up existing interfaces, if any.
+    cmd_cleanup = ('ip', 'link', 'del', veth_host)
+    try:
+      cros_build_lib.RunCommand(cmd_cleanup, print_cmd=False)
+    except cros_build_lib.RunCommandError:
+      cros_build_lib.Error('running %r failed', cmd_cleanup)
+    raise SystemExit('Running %r failed!' % (cmd,))
+  os.write(parent_writefd, SUCCESS_FLAG)
+  os.close(parent_writefd)
+
+  _ExitAsStatus(os.waitpid(pid, 0)[1])
+
+
+def _ExitAsStatus(status):
+  """Exit the same way as |status|.
+
+  If the status field says it was killed by a signal, then we'll do that to
+  ourselves.  Otherwise we'll exit with the exit code.
+
+  See http://www.cons.org/cracauer/sigint.html for more details.
+
+  Args:
+    status: A status as returned by os.wait type funcs.
+  """
+  sig_status = status & 0xff
+  exit_status = (status >> 8) & 0xff
+
+  if sig_status:
+    # Kill ourselves with the same signal.
+    pid = os.getpid()
+    os.kill(pid, sig_status)
+    time.sleep(0.1)
+
+    # Still here?  Maybe the signal was masked.
+    signal.signal(sig_status, signal.SIG_DFL)
+    os.kill(pid, sig_status)
+    time.sleep(0.1)
+
+    # Still here?  Just exit.
+    exit_status = 127
+
+  # Exit with the code we want.
+  sys.exit(exit_status)
+
+
+def _ReapChildren(pid):
+  """Reap all children that get reparented to us until we see |pid| exit.
+
+  Args:
+    pid: The main child to watch for.
+
+  Returns:
+    The wait status of the |pid| child.
+  """
+  pid_status = 0
+
+  while True:
+    try:
+      (wpid, status) = os.wait()
+      if pid == wpid:
+        # Save the status of our main child so we can exit with it below.
+        pid_status = status
+    except OSError as e:
+      if e.errno == errno.ECHILD:
+        break
+      else:
+        raise
+
+  return pid_status
+
+
+def _CreatePidNamespace():
+  """Start a new pid namespace
+
+  This will launch all the right manager processes.  The child that returns
+  will be isolated in a new pid namespace.
+
+  If functionality is not available, then it will return w/out doing anything.
+
+  Returns:
+    The last pid outside of the namespace.
+  """
+  first_pid = os.getpid()
+
+  try:
+    # First create the namespace.
+    namespaces.Unshare(namespaces.CLONE_NEWPID)
+  except OSError as e:
+    if e.errno == errno.EINVAL:
+      # For older kernels, or the functionality is disabled in the config,
+      # return silently.  We don't want to hard require this stuff.
+      return first_pid
+    else:
+      # For all other errors, abort.  They shouldn't happen.
+      raise
+
+  # Now that we're in the new pid namespace, fork.  The parent is the master
+  # of it in the original namespace, so it only monitors the child inside it.
+  # It is only allowed to fork once too.
+  pid = os.fork()
+  if pid:
+    # Reap the children as the parent of the new namespace.
+    _ExitAsStatus(_ReapChildren(pid))
+  else:
+    # The child needs its own proc mount as it'll be different.
+    osutils.Mount('proc', '/proc', 'proc',
+                  osutils.MS_NOSUID | osutils.MS_NODEV | osutils.MS_NOEXEC |
+                  osutils.MS_RELATIME)
+
+    pid = os.fork()
+    if pid:
+      # Watch all of the children.  We need to act as the master inside the
+      # namespace and reap old processes.
+      _ExitAsStatus(_ReapChildren(pid))
+
+  # The grandchild will return and take over the rest of the sdk steps.
+  return first_pid
+
+
+def _ReExecuteIfNeeded(argv):
+  """Re-execute cros_sdk as root.
+
+  Also unshare the mount namespace so as to ensure that processes outside
+  the chroot can't mess with our mounts.
+  """
+  if os.geteuid() != 0:
+    cmd = _SudoCommand() + ['--'] + argv
+    os.execvp(cmd[0], cmd)
+  else:
+    # We must set up the cgroups mounts before we enter our own namespace.
+    # This way it is a shared resource in the root mount namespace.
+    cgroups.Cgroup.InitSystem()
+    namespaces.Unshare(namespaces.CLONE_NEWNS | namespaces.CLONE_NEWUTS)
+
+
+def _CreateParser(sdk_latest_version, bootstrap_latest_version):
+  """Generate and return the parser with all the options."""
+  usage = """usage: %prog [options] [VAR1=val1 .. VARn=valn -- args]
+
+This script is used for manipulating local chroot environments; creating,
+deleting, downloading, etc.  If given --enter (or no args), it defaults
+to an interactive bash shell within the chroot.
+
+If given args those are passed to the chroot environment, and executed."""
+
+  parser = commandline.OptionParser(usage=usage, caching=True)
+
+  # Global options.
+  default_chroot = os.path.join(constants.SOURCE_ROOT,
+                                constants.DEFAULT_CHROOT_DIR)
+  parser.add_option(
+      '--chroot', dest='chroot', default=default_chroot, type='path',
+      help=('SDK chroot dir name [%s]' % constants.DEFAULT_CHROOT_DIR))
+
+  parser.add_option('--chrome_root', default=None, type='path',
+                    help='Mount this chrome root into the SDK chroot')
+  parser.add_option('--chrome_root_mount', default=None, type='path',
+                    help='Mount chrome into this path inside SDK chroot')
+  parser.add_option('--nousepkg', action='store_true', default=False,
+                    help='Do not use binary packages when creating a chroot.')
+  parser.add_option('-u', '--url',
+                    dest='sdk_url', default=None,
+                    help=('''Use sdk tarball located at this url.
+                             Use file:// for local files.'''))
+  parser.add_option('--sdk-version', default=None,
+                    help='Use this sdk version.  For prebuilt, current is %r'
+                         ', for bootstrapping it is %r.'
+                          % (sdk_latest_version, bootstrap_latest_version))
+
+  # Commands.
+  group = parser.add_option_group('Commands')
+  group.add_option(
+      '--enter', action='store_true', default=False,
+      help='Enter the SDK chroot.  Implies --create.')
+  group.add_option(
+      '--create', action='store_true',default=False,
+      help='Create the chroot only if it does not already exist.  '
+      'Implies --download.')
+  group.add_option(
+      '--bootstrap', action='store_true', default=False,
+      help='Build everything from scratch, including the sdk.  '
+      'Use this only if you need to validate a change '
+      'that affects SDK creation itself (toolchain and '
+      'build are typically the only folk who need this).  '
+      'Note this will quite heavily slow down the build.  '
+      'This option implies --create --nousepkg.')
+  group.add_option(
+      '-r', '--replace', action='store_true', default=False,
+      help='Replace an existing SDK chroot.  Basically an alias '
+      'for --delete --create.')
+  group.add_option(
+      '--delete', action='store_true', default=False,
+      help='Delete the current SDK chroot if it exists.')
+  group.add_option(
+      '--download', action='store_true', default=False,
+      help='Download the sdk.')
+  commands = group
+
+  # Namespace options.
+  group = parser.add_option_group('Namespaces')
+  group.add_option('--proxy-sim', action='store_true', default=False,
+                   help='Simulate a restrictive network requiring an outbound'
+                        ' proxy.')
+  # TODO(vapier): Turn off pid ns until ccache issues can be fixed.
+  # http://crbug.com/411984
+  group.add_option('--no-ns-pid', dest='ns_pid',
+                   default=False, action='store_false',
+                   help='Do not create a new PID namespace.')
+
+  # Internal options.
+  group = parser.add_option_group(
+      'Internal Chromium OS Build Team Options',
+      'Caution: these are for meant for the Chromium OS build team only')
+  group.add_option('--buildbot-log-version', default=False, action='store_true',
+                   help='Log SDK version for buildbot consumption')
+
+  return (parser, commands)
+
+
+def main(argv):
+  conf = cros_build_lib.LoadKeyValueFile(
+      os.path.join(constants.SOURCE_ROOT, constants.SDK_VERSION_FILE),
+      ignore_missing=True)
+  sdk_latest_version = conf.get('SDK_LATEST_VERSION', '<unknown>')
+  bootstrap_latest_version = conf.get('BOOTSTRAP_LATEST_VERSION', '<unknown>')
+  parser, commands = _CreateParser(sdk_latest_version, bootstrap_latest_version)
+  options, chroot_command = parser.parse_args(argv)
+
+  # Some sanity checks first, before we ask for sudo credentials.
+  cros_build_lib.AssertOutsideChroot()
+
+  host = os.uname()[4]
+  if host != 'x86_64':
+    parser.error(
+        "cros_sdk is currently only supported on x86_64; you're running"
+        " %s.  Please find a x86_64 machine." % (host,))
+
+  _ReportMissing(osutils.FindMissingBinaries(NEEDED_TOOLS))
+  if options.proxy_sim:
+    _ReportMissing(osutils.FindMissingBinaries(PROXY_NEEDED_TOOLS))
+
+  _ReExecuteIfNeeded([sys.argv[0]] + argv)
+  if options.ns_pid:
+    first_pid = _CreatePidNamespace()
+  else:
+    first_pid = None
+
+  # Expand out the aliases...
+  if options.replace:
+    options.delete = options.create = True
+
+  if options.bootstrap:
+    options.create = True
+
+  # If a command is not given, default to enter.
+  options.enter |= not any(getattr(options, x.dest)
+                           for x in commands.option_list)
+  options.enter |= bool(chroot_command)
+
+  if options.enter and options.delete and not options.create:
+    parser.error("Trying to enter the chroot when --delete "
+                 "was specified makes no sense.")
+
+  # Finally, discern if we need to create the chroot.
+  chroot_exists = os.path.exists(options.chroot)
+  if options.create or options.enter:
+    # Only create if it's being wiped, or if it doesn't exist.
+    if not options.delete and chroot_exists:
+      options.create = False
+    else:
+      options.download = True
+
+  # Finally, flip create if necessary.
+  if options.enter:
+    options.create |= not chroot_exists
+
+  if not options.sdk_version:
+    sdk_version = (bootstrap_latest_version if options.bootstrap
+                   else sdk_latest_version)
+  else:
+    sdk_version = options.sdk_version
+  if options.buildbot_log_version:
+    cros_build_lib.PrintBuildbotStepText(sdk_version)
+
+  # Based on selections, fetch the tarball.
+  if options.sdk_url:
+    urls = [options.sdk_url]
+  elif options.bootstrap:
+    urls = GetStage3Urls(sdk_version)
+  else:
+    urls = GetArchStageTarballs(sdk_version)
+
+  lock_path = os.path.dirname(options.chroot)
+  lock_path = os.path.join(lock_path,
+                           '.%s_lock' % os.path.basename(options.chroot))
+  with cgroups.SimpleContainChildren('cros_sdk', pid=first_pid):
+    with locking.FileLock(lock_path, 'chroot lock') as lock:
+
+      if options.proxy_sim:
+        _ProxySimSetup(options)
+
+      if options.delete and os.path.exists(options.chroot):
+        lock.write_lock()
+        DeleteChroot(options.chroot)
+
+      sdk_cache = os.path.join(options.cache_dir, 'sdks')
+      distfiles_cache = os.path.join(options.cache_dir, 'distfiles')
+      osutils.SafeMakedirsNonRoot(options.cache_dir)
+
+      for target in (sdk_cache, distfiles_cache):
+        src = os.path.join(constants.SOURCE_ROOT, os.path.basename(target))
+        if not os.path.exists(src):
+          osutils.SafeMakedirs(target)
+          continue
+        lock.write_lock(
+            "Upgrade to %r needed but chroot is locked; please exit "
+            "all instances so this upgrade can finish." % src)
+        if not os.path.exists(src):
+          # Note that while waiting for the write lock, src may've vanished;
+          # it's a rare race during the upgrade process that's a byproduct
+          # of us avoiding taking a write lock to do the src check.  If we
+          # took a write lock for that check, it would effectively limit
+          # all cros_sdk for a chroot to a single instance.
+          osutils.SafeMakedirs(target)
+        elif not os.path.exists(target):
+          # Upgrade occurred, but a reversion, or something whacky
+          # occurred writing to the old location.  Wipe and continue.
+          os.rename(src, target)
+        else:
+          # Upgrade occurred once already, but either a reversion or
+          # some before/after separate cros_sdk usage is at play.
+          # Wipe and continue.
+          osutils.RmDir(src)
+
+      if options.download:
+        lock.write_lock()
+        sdk_tarball = FetchRemoteTarballs(sdk_cache, urls)
+
+      if options.create:
+        lock.write_lock()
+        CreateChroot(options.chroot, sdk_tarball, options.cache_dir,
+                     nousepkg=(options.bootstrap or options.nousepkg))
+
+      if options.enter:
+        lock.read_lock()
+        EnterChroot(options.chroot, options.cache_dir, options.chrome_root,
+                    options.chrome_root_mount, chroot_command)

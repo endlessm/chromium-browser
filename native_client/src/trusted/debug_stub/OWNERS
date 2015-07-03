@@ -1,0 +1,8 @@
+# Please keep these in alphabetical order
+eaeltsin@google.com
+halyavin@google.com
+mseaborn@chromium.org
+
+# For build file review
+per-file *.gn=bradnelson@chromium.org
+per-file *.gn=noelallen@chromium.org

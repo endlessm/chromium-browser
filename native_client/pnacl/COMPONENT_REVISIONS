@@ -1,0 +1,20 @@
+# PNaCl component git revisions. The git base URL and repository names are at
+# the top of toolchain_build/toolchain_build_pnacl.py.
+# For backward compatibility, the key names match the directory names used by
+# gclient in the earlier version of this file, with the exception that
+# underscores in this file become dashes in the directory name (that means this
+# file can be 'source'ed in a shell script).
+#
+# You can auto-update this file with ./pnacl/deps_update.py
+
+binutils=96502532d7e2ad3e7bcbf5461903f78283998856
+clang=d267e1b5f1901aa53f827ecfe6a6b32a57d9198e
+llvm=85fd7c7fa77dde0df38e9d7c72897c139f966db7
+gcc=574429118e460375c377728420c43aad4a3103dc
+libcxx=5f8fc73f0bb2d126737d4be041777a317ba8e568
+libcxxabi=53ea5adaab7e1fd67d22744a169e4b3a17fbf40a
+nacl_newlib=bf66148d14c7fca26b9198dd5dc81e743893bb66
+llvm_test_suite=4937c9ab297198c9450fd6bb77763299a62627e7
+compiler_rt=042faedc42471163bd25591e062456a07b490ed7
+subzero=1eb3a55dd9a08ceffe545b144a3be9ba63955035
+binutils_x86=7dc2f2590e3e0dcec737a0c91e3f86d91c10db7f

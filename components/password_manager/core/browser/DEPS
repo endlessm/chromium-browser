@@ -1,0 +1,7 @@
+include_rules = [
+  "+components/autofill/core/browser",
+  "+components/keyed_service/core",
+  "+components/pref_registry",
+  "+components/webdata/common",
+  "+google_apis",
+]

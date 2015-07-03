@@ -1,0 +1,235 @@
+{
+  "compile_targets": [
+    "all"
+  ],
+  "gtest_tests": [
+    "accessibility_unittests",
+    "app_list_unittests",
+    {
+      "test": "ash_unittests",
+      "chromium_configs": [
+        "chromium_chromeos",
+        "chromium_chromeos_clang",
+        "chromium_chromeos_ozone"
+      ],
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "ash_unittests",
+      "platforms": ["win"],
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "base_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "browser_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 5
+      }
+    },
+    "cacheinvalidation_unittests",
+    "cast_unittests",
+    "cc_unittests",
+    "chromedriver_unittests",
+    {
+      "test": "chromevox_tests",
+      "chromium_configs": [
+        "chromium_chromeos",
+        "chromium_chromeos_clang",
+        "chromium_chromeos_ozone"
+      ]
+    },
+    {
+      "test": "chrome_elf_unittests",
+      "platforms": ["win"]
+    },
+    "components_browsertests",
+    "components_unittests",
+    {
+      "test": "compositor_unittests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "courgette_unittests",
+      "platforms": ["win"]
+    },
+    {
+      "test": "content_browsertests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    {
+      "test": "content_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    "crypto_unittests",
+    {
+      "test": "dbus_unittests",
+      "platforms": ["linux"]
+    },
+    "device_unittests",
+    "events_unittests",
+    {
+      "test": "extensions_unittests",
+      "platforms": ["win", "mac", "linux"]
+    },
+    "gcm_unit_tests",
+    "gfx_unittests",
+    "google_apis_unittests",
+    "gpu_unittests",
+    {
+      "test": "interactive_ui_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 3
+      }
+    },
+    {
+      "test": "installer_util_unittests",
+      "platforms": ["win"]
+    },
+    {
+      "test": "ipc_mojo_unittests",
+      "platforms": ["linux"]
+    },
+    "ipc_tests",
+    "jingle_unittests",
+    {
+      "test": "keyboard_unittests",
+      "platforms": ["linux", "win"]
+    },
+    "media_perftests",
+    "media_unittests",
+    "message_center_unittests",
+    "mojo_common_unittests",
+    "mojo_public_bindings_unittests",
+    "mojo_public_environment_unittests",
+    "mojo_public_system_unittests",
+    "mojo_public_utility_unittests",
+    "mojo_system_unittests",
+    {
+      "test": "nacl_loader_unittests",
+      "platforms": ["linux"]
+    },
+    {
+      "test": "net_unittests",
+      "swarming": {
+        "can_use_on_swarming_builders": true
+      }
+    },
+    "ppapi_unittests",
+    "printing_unittests",
+    "remoting_unittests",
+    {
+      "test": "sbox_integration_tests",
+      "platforms": ["win"]
+    },
+    {
+      "test": "sbox_validation_tests",
+      "platforms": ["win"]
+    },
+    {
+      "test": "sbox_unittests",
+      "platforms": ["win"]
+    },
+    "sql_unittests",
+    {
+      "test": "sync_integration_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 3
+      }
+    },
+    "sync_unit_tests",
+    "ui_unittests",
+    {
+      "test": "unit_tests",
+      "swarming": {
+        "can_use_on_swarming_builders": true,
+        "shards": 2
+      }
+    },
+    "url_unittests",
+    {
+      "test": "wm_unittests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "app_shell_browsertests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "app_shell_unittests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "aura_unittests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "views_unittests",
+      "platforms": ["linux", "win"]
+    },
+    {
+      "test": "sandbox_linux_unittests",
+      "platforms": ["linux"],
+      "args": ["--test-launcher-print-test-stdio=always"]
+    },
+    {
+      "test": "sandbox_mac_unittests",
+      "platforms": ["mac"]
+    },
+    {
+      "test": "chromeos_unittests",
+      "platforms": ["linux"],
+      "chromium_configs": [
+        "chromium_chromeos",
+        "chromium_chromeos_clang",
+        "chromium_chromeos_ozone"
+      ]
+    },
+    {
+      "test": "athena_unittests",
+      "platforms": ["linux"],
+      "chromium_configs": [
+        "chromium_chromeos",
+        "chromium_chromeos_athena",
+        "chromium_chromeos_ozone"
+      ]
+    },
+    {
+      "test": "display_unittests",
+      "platforms": ["linux"]
+    },
+    {
+      "test": "ozone_unittests",
+      "platforms": ["linux"],
+      "chromium_configs": ["chromium_chromeos_ozone"]
+    }
+  ],
+
+  "non_filter_builders": [
+  ],
+
+  "non_filter_tests_builders": [
+  ],
+
+  "filter_compile_builders": [
+    "win_chromium_compile_dbg",
+    "win_chromium_rel_swarming",
+    "win_chromium_x64_rel_swarming",
+    "win8_chromium_rel"
+  ]
+}

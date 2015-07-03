@@ -1,0 +1,34 @@
+# -*- python -*-
+# Copyright (c) 2012 The Native Client Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+
+import os
+import sys
+Import('env')
+
+
+env.ComponentLibrary(env.NaClTargetArchSuffix('ncfileutils'), ['ncfileutil.c'])
+
+env.ComponentLibrary('validation_cache', ['validation_cache.c'])
+
+env.ComponentLibrary('validators', ['validator_init.c'])
+
+if env.Bit('target_x86') or env.Bit('target_mips32'):
+  # TODO(ncbray) support ARM.  This will require making validation caching safe
+  # for ARM and embedding ARM binary chunks in the test that can trigger various
+  # validation scenarios.
+  gtest_env = env.MakeGTestEnv()
+
+  validation_cache_test_exe = gtest_env.ComponentProgram(
+      'validation_cache_test',
+      ['validation_cache_test.cc'],
+      EXTRA_LIBS=['validators', 'nrd_xfer', 'validation_cache'])
+
+  node = gtest_env.CommandTest(
+      'validation_cache_test.out',
+      command=[validation_cache_test_exe])
+
+  env.AddNodeToTestSuite(node, ['small_tests', 'validator_tests'],
+                         'run_validation_cache_test')

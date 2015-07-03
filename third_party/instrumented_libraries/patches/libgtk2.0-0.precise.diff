@@ -1,0 +1,26 @@
+diff -rupN ./gtk/gtkmain.c ../gtk+2.0-2.24.10-patched/gtk/gtkmain.c
+--- ./gtk/gtkmain.c	2014-05-29 19:39:07.000000000 +0400
++++ ../gtk+2.0-2.24.10-patched/gtk/gtkmain.c	2014-05-29 19:44:00.368263970 +0400
+@@ -759,7 +759,7 @@ _overlay_scrollbar_init (void)
+     return;
+ 
+   /* default extension library to use for this release */
+-  gchar *path = "/usr/lib/liboverlay-scrollbar-0.2.so.0";
++  gchar *path = "liboverlay-scrollbar-0.2.so.0";
+ 
+   module = g_module_open (path, G_MODULE_BIND_LOCAL);
+   if (module == NULL)
+diff -rupN ./gtk/gtkmenushell.h ../gtk+2.0-2.24.10-patched/gtk/gtkmenushell.h
+--- ./gtk/gtkmenushell.h	2011-08-16 06:30:52.000000000 +0400
++++ ../gtk+2.0-2.24.10-patched/gtk/gtkmenushell.h	2014-05-29 19:42:28.029449496 +0400
+@@ -135,7 +135,9 @@ void     _gtk_menu_shell_update_mnemonic
+ void     _gtk_menu_shell_set_keyboard_mode (GtkMenuShell *menu_shell,
+                                             gboolean      keyboard_mode);
+ gboolean _gtk_menu_shell_get_keyboard_mode (GtkMenuShell *menu_shell);
+-
++// https://bugs.launchpad.net/bugs/945135
++gboolean ubuntu_gtk_menu_shell_activate_mnemonic (GtkMenuShell *shell, GtkWidget *item);
++gboolean ubuntu_gtk_menu_shell_activate_first (GtkMenuShell *menu_shell, gboolean search_sensitive);
+ G_END_DECLS
+ 
+ #endif /* __GTK_MENU_SHELL_H__ */

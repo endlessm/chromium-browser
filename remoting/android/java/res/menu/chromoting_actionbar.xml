@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- Copyright 2014 The Chromium Authors. All rights reserved.
+     Use of this source code is governed by a BSD-style license that can be
+     found in the LICENSE file.
+-->
+
+<!--Action bar buttons for the Android app's host listing-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/actionbar_directoryrefresh"
+            android:title="@string/tooltip_refresh"
+            android:icon="@android:drawable/ic_popup_sync"
+            android:showAsAction="ifRoom"/>
+    <!--
+        The Help option must be the final menu item and it must only appear in
+        the action-bar overflow menu.
+    -->
+    <item android:id="@+id/actionbar_help"
+            android:title="@string/actionbar_help"
+            android:showAsAction="never"/>
+</menu>

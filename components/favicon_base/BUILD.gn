@@ -1,0 +1,22 @@
+# Copyright 2014 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+source_set("favicon_base") {
+  sources = [
+    "favicon_callback.h",
+    "favicon_types.cc",
+    "favicon_types.h",
+    "favicon_util.cc",
+    "favicon_util.h",
+    "select_favicon_frames.cc",
+    "select_favicon_frames.h",
+  ]
+
+  deps = [
+    "//base",
+    "//skia",
+    "//ui/gfx",
+    "//url",
+  ]
+}

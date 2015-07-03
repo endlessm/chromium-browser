@@ -1,0 +1,104 @@
+// Copyright 2013 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_AUTOFILL_MANAGER_H_
+#define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_AUTOFILL_MANAGER_H_
+
+#include <map>
+
+#include "base/gtest_prod_util.h"
+#include "base/i18n/rtl.h"
+#include "components/autofill/core/browser/autofill_client.h"
+#include "components/autofill/core/browser/autofill_popup_delegate.h"
+#include "components/autofill/core/common/password_form_fill_data.h"
+
+namespace gfx {
+class RectF;
+}
+
+namespace password_manager {
+
+class PasswordManagerClient;
+
+// This class is responsible for filling password forms.
+class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
+ public:
+  PasswordAutofillManager(PasswordManagerClient* password_manager_client,
+                          autofill::AutofillClient* autofill_client);
+  virtual ~PasswordAutofillManager();
+
+  // AutofillPopupDelegate implementation.
+  void OnPopupShown() override;
+  void OnPopupHidden() override;
+  void DidSelectSuggestion(const base::string16& value,
+                           int identifier) override;
+  void DidAcceptSuggestion(const base::string16& value,
+                           int identifier) override;
+  void RemoveSuggestion(const base::string16& value, int identifier) override;
+  void ClearPreviewedForm() override;
+
+  // Invoked when a password mapping is added.
+  void OnAddPasswordFormMapping(
+      int key,
+      const autofill::PasswordFormFillData& fill_data);
+
+  // Handles a request from the renderer to show a popup with the given
+  // |suggestions| from the password manager.
+  void OnShowPasswordSuggestions(int key,
+                                 base::i18n::TextDirection text_direction,
+                                 const base::string16& typed_username,
+                                 bool show_all,
+                                 const gfx::RectF& bounds);
+
+  // Invoked to clear any page specific cached values.
+  void Reset();
+
+  // A public version of FillSuggestion(), only for use in tests.
+  bool FillSuggestionForTest(int key, const base::string16& username);
+
+  // A public version of PreviewSuggestion(), only for use in tests.
+  bool PreviewSuggestionForTest(int key, const base::string16& username);
+
+ private:
+  typedef std::map<int, autofill::PasswordFormFillData> LoginToPasswordInfoMap;
+
+  // Attempts to fill the password associated with user name |username|, and
+  // returns true if it was successful.
+  bool FillSuggestion(int key, const base::string16& username);
+
+  // Attempts to preview the password associated with user name |username|, and
+  // returns true if it was successful.
+  bool PreviewSuggestion(int key, const base::string16& username);
+
+  // If |current_username| matches a username for one of the login mappings in
+  // |fill_data|, returns true and assigns the password to |out_password|.
+  // Otherwise, returns false and leaves |out_password| untouched.
+  bool GetPasswordForUsername(
+      const base::string16& current_username,
+      const autofill::PasswordFormFillData& fill_data,
+      base::string16* out_password);
+
+  // Finds login information for a |node| that was previously filled.
+  bool FindLoginInfo(int key, autofill::PasswordFormFillData* found_password);
+
+  // The logins we have filled so far with their associated info.
+  LoginToPasswordInfoMap login_to_password_info_;
+
+  // When the autofill popup should be shown, |form_data_key_| identifies the
+  // right password info in |login_to_password_info_|.
+  int form_data_key_;
+
+  // Provides embedder-level operations on passwords. Must outlive |this|.
+  PasswordManagerClient* const password_manager_client_;  // weak
+
+  autofill::AutofillClient* const autofill_client_;  // weak
+
+  base::WeakPtrFactory<PasswordAutofillManager> weak_ptr_factory_;
+
+  DISALLOW_COPY_AND_ASSIGN(PasswordAutofillManager);
+};
+
+}  // namespace password_manager
+
+#endif  // COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_AUTOFILL_MANAGER_H_

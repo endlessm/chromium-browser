@@ -1,0 +1,12 @@
+# Apps team members
+asargent@chromium.org
+benwells@chromium.org
+kalman@chromium.org
+miket@chromium.org
+scheib@chromium.org
+tapted@chromium.org
+
+per-file web_view_*.cc=fsamuel@chromium.org
+per-file web_view_*.cc=lazyboy@chromium.org
+per-file app_view_*.cc=fsamuel@chromium.org
+per-file app_view_*.cc=lazyboy@chromium.org

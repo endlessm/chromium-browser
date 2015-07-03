@@ -1,0 +1,70 @@
+{
+  "package_name": "nacl_x86_newlib",
+  "package_targets": {
+    "linux_x86": {
+      "archives": [
+        {
+          "extract_dir": "",
+          "hash": "ab1f5c38907c955707c48e128461c6b641b6db1d",
+          "log_url": "https://storage.googleapis.com/nativeclient-once/log/gdb_i686_linux_6bbde2e05e59e7c317f12109eac37a226cef9302.log",
+          "name": "gdb_i686_linux.tgz",
+          "tar_src_dir": "",
+          "url": "https://storage.googleapis.com/nativeclient-once/object/gdb_i686_linux_6bbde2e05e59e7c317f12109eac37a226cef9302.tgz"
+        },
+        {
+          "extract_dir": "",
+          "hash": "cb5a6bccd722557b54ccd18531541bb128de80ee",
+          "log_url": null,
+          "name": "naclsdk.tgz",
+          "tar_src_dir": "sdk/nacl-sdk",
+          "url": "https://storage.googleapis.com/nativeclient-archive2/toolchain/13917/naclsdk_linux_x86.tgz"
+        }
+      ],
+      "version": 1
+    },
+    "mac_x86": {
+      "archives": [
+        {
+          "extract_dir": "",
+          "hash": "b3451ab55131fd03253ff6528fd5acfc10d4336a",
+          "log_url": "https://storage.googleapis.com/nativeclient-once/log/gdb_x86_64_apple_darwin_e7bdac29b0f3afc41948b764f621896bd3d51003.log",
+          "name": "gdb_x86_64_apple_darwin.tgz",
+          "tar_src_dir": "",
+          "url": "https://storage.googleapis.com/nativeclient-once/object/gdb_x86_64_apple_darwin_e7bdac29b0f3afc41948b764f621896bd3d51003.tgz"
+        },
+        {
+          "extract_dir": "",
+          "hash": "d1def1c316159f1ee9cd348e9ec693e5e174ce77",
+          "log_url": null,
+          "name": "naclsdk.tgz",
+          "tar_src_dir": "sdk/nacl-sdk",
+          "url": "https://storage.googleapis.com/nativeclient-archive2/toolchain/13917/naclsdk_mac_x86.tgz"
+        }
+      ],
+      "version": 1
+    },
+    "win_x86": {
+      "archives": [
+        {
+          "extract_dir": "",
+          "hash": "c704a8301fda3abfcdfb5910d4609fd89add564d",
+          "log_url": "https://storage.googleapis.com/nativeclient-once/log/gdb_i686_w64_mingw32_2bf6bc84a2e6b502438ee4ac39ac1b3cd1cc60cc.log",
+          "name": "gdb_i686_w64_mingw32.tgz",
+          "tar_src_dir": "",
+          "url": "https://storage.googleapis.com/nativeclient-once/object/gdb_i686_w64_mingw32_2bf6bc84a2e6b502438ee4ac39ac1b3cd1cc60cc.tgz"
+        },
+        {
+          "extract_dir": "",
+          "hash": "ef526330ad9dfa84956207ec31b040852c3a29bf",
+          "log_url": null,
+          "name": "naclsdk.tgz",
+          "tar_src_dir": "sdk/nacl-sdk",
+          "url": "https://storage.googleapis.com/nativeclient-archive2/toolchain/13917/naclsdk_win_x86.tgz"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "revision": 13917,
+  "revision_hash": "dbd6e280168224cdd7d561b856a66da04cb78afb"
+}

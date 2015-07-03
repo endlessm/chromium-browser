@@ -1,0 +1,51 @@
+/* Copyright (c) 2012 The Chromium Authors. All rights reserved.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file. */
+
+.buttonbar button.combobutton {
+  align-items: stretch;
+  display: flex;
+}
+
+.buttonbar .combobutton > .action {
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}
+
+.buttonbar .combobutton > .with-icon {
+  -webkit-padding-start: 21px;
+}
+
+html[dir='rtl'] .buttonbar .combobutton > .action {
+  background-position: right center;
+}
+
+.buttonbar .combobutton > .trigger {
+  -webkit-border-start: solid 1px #dcdcdc;
+  -webkit-margin-end: -8px;
+  -webkit-margin-start: 8px;
+  width: 22px;
+}
+
+/* This pseudo element expands clickable area of the .trigger */
+.buttonbar .combobutton > .trigger::before {
+  content: '';
+  display: block;
+  height: 31px;
+  position: absolute;
+  top: -5px;
+  width: 30px;
+}
+
+.buttonbar .combobutton:not([multiple]) > .trigger {
+  display: none;
+}
+
+.buttonbar .combobutton > div > span.disclosureindicator {
+  -webkit-transform: rotate(90deg);
+}
+
+.buttonbar .combobutton[hidden] {
+  display: none;
+}

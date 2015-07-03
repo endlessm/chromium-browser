@@ -1,0 +1,62 @@
+###
+### Mac-only failures
+###
+
+# Introduced by the update to clang for the host build, still investigating.
+LLVM::ExecutionEngine/MCJIT/eh-sm-pic.ll
+
+###
+### Windows-only failures
+###
+# For now we have both cygwin and msys failures in here.
+# TODO(dschuff): once we switch to msys only, remove the cygwin failures.
+# also run the script with --check-excludes (however some failures seem flaky on
+# msys)
+# These seem specific to cygwin
+Clang::Driver/crash-report.c win
+Clang::Driver/output-file-cleanup.c win
+# These pass unexpectedly under cygwin:
+LLVM::ExecutionEngine/MCJIT/eh.ll win
+LLVM::ExecutionEngine/MCJIT/multi-module-eh-a.ll win
+
+# These seem specific to msys; however they are flaky
+Clang::PCH/case-insensitive-include.c win
+Clang::Index/complete-exprs.c win
+Clang::Index/complete-macros.c win
+Clang::Index/complete-macro-args.c win
+
+# These are specific to msys but do not seem flaky
+LLVM::BugPoint/crash-narrowfunctiontest.ll win
+LLVM::BugPoint/metadata.ll win
+LLVM::BugPoint/remove_arguments_test.ll win
+
+# These fail under cygwin (I've not tried them under msys):
+Clang::Analysis/crash-trace.c win
+Clang::Parser/crash-report.c win
+# These tests appear to be flaky:
+Clang::Analysis/taint-tester.c win
+Clang::Index/index-module.m win
+Clang::Index/targeted-annotation.c win
+Clang::Index/targeted-cursor.c win
+Clang::Index/targeted-file-refs.c win
+# Fails with a crash in llvm-rtdyld, which we don't care about for PNaCl.
+LLVM::DebugInfo/debuglineinfo.test win
+# Tries to open LLVMHello.dll, but that apparently does not get built.
+LLVM::Feature/load_module.ll win
+
+
+###
+### x86-32-host only failures
+###
+LLVM::ExecutionEngine/MCJIT/stubs-sm-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/remote/test-ptr-reloc-sm-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/test-ptr-reloc-sm-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/hello-sm-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/multi-module-sm-pic-a.ll x86_32
+LLVM::ExecutionEngine/MCJIT/remote/multi-module-sm-pic-a.ll x86_32
+Clang::Modules/compiler_builtins.m x86_32
+LLVM::ExecutionEngine/MCJIT/cross-module-sm-pic-a.ll x86_32
+LLVM::ExecutionEngine/MCJIT/remote/cross-module-sm-pic-a.ll x86_32
+LLVM::ExecutionEngine/MCJIT/eh-lg-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/remote/test-global-init-nonzero-sm-pic.ll x86_32
+LLVM::ExecutionEngine/MCJIT/test-global-init-nonzero-sm-pic.ll x86_32
