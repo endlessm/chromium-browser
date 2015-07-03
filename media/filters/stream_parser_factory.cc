@@ -277,6 +277,11 @@ static bool VerifyCodec(
           base::android::BuildInfo::GetInstance()->sdk_int() < 19) {
         return false;
       }
+#else
+      if (codec_info->tag == CodecInfo::HISTOGRAM_VP9
+          || codec_info->tag == CodecInfo::HISTOGRAM_VP8) {
+        return false;
+      }
 #endif
       if (video_codecs)
         video_codecs->push_back(codec_info->tag);

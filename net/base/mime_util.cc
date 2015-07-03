@@ -514,6 +514,18 @@ static bool IsMimeTypeSupportedOnAndroid(const std::string& mimeType) {
   }
   return true;
 }
+#else
+static bool IsCodecSupportedOnDevice(MimeUtil::Codec codec) {
+  // Don't support VP8 or VP9 on ARM for now
+  switch (codec) {
+    case MimeUtil::VP8:
+    case MimeUtil::VP9:
+     return false;
+
+    default:
+     return true;
+  }
+}
 #endif
 
 struct MediaFormatStrict {
@@ -1035,8 +1047,10 @@ bool MimeUtil::IsCodecSupported(Codec codec) const {
 
 #if defined(OS_ANDROID)
   if (!IsCodecSupportedOnAndroid(codec))
-    return false;
+#else
+  if (!IsCodecSupportedOnDevice(codec))
 #endif
+    return false;
 
   return allow_proprietary_codecs_ || !IsCodecProprietary(codec);
 }
