@@ -87,8 +87,8 @@
     ],
     "lang": "en-US",
     "name": "Adobe Flash Player",
-    "help_url": "https://support.google.com/chrome/?p=plugin_flash",
-    "url": "http://get.adobe.com/flashplayer/",
+    "help_url": "https://wiki.ubuntu.com/Chromium/Getting-Flash#help",
+    "url": "https://wiki.ubuntu.com/Chromium/Getting-Flash",
     "displayurl": true,
     "group_name_matcher": "*Shockwave Flash*"
   },
