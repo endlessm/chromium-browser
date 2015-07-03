@@ -1,0 +1,18 @@
+{
+  "libunity_npapi_plugin.so": {
+    "mime_types": [
+      "application/x-unity-webapps-npapi"
+    ],
+    "versions": [
+      {
+        "version": "0",
+        "status": "up_to_date",
+        "reference": "https://launchpad.net/unity-chromium-extension/12.10"
+      }
+    ],
+    "lang": "en-US",
+    "name": "Unity WebApps plugin",
+    "url": "https://launchpad.net/ubuntu/quantal/+source/unity-chromium-extension",
+    "group_name_matcher": "Unity WebApps plugin"
+  }
+}
