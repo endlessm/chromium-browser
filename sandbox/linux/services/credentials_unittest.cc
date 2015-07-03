@@ -48,82 +48,20 @@ bool WorkingDirectoryIsRoot() {
   return true;
 }
 
-// Give dynamic tools a simple thing to test.
-TEST(Credentials, CreateAndDestroy) {
-  {
-    Credentials cred1;
-    (void) cred1;
-  }
-  scoped_ptr<Credentials> cred2(new Credentials);
-}
-
-TEST(Credentials, CountOpenFds) {
-  base::ScopedFD proc_fd(open("/proc", O_RDONLY | O_DIRECTORY));
-  ASSERT_TRUE(proc_fd.is_valid());
-  Credentials creds;
-  int fd_count = creds.CountOpenFds(proc_fd.get());
-  int fd = open("/dev/null", O_RDONLY);
-  ASSERT_LE(0, fd);
-  EXPECT_EQ(fd_count + 1, creds.CountOpenFds(proc_fd.get()));
-  ASSERT_EQ(0, IGNORE_EINTR(close(fd)));
-  EXPECT_EQ(fd_count, creds.CountOpenFds(proc_fd.get()));
-}
-
-TEST(Credentials, HasOpenDirectory) {
-  Credentials creds;
-  // No open directory should exist at startup.
-  EXPECT_FALSE(creds.HasOpenDirectory(-1));
-  {
-    // Have a "/dev" file descriptor around.
-    int dev_fd = open("/dev", O_RDONLY | O_DIRECTORY);
-    base::ScopedFD dev_fd_closer(dev_fd);
-    EXPECT_TRUE(creds.HasOpenDirectory(-1));
-  }
-  EXPECT_FALSE(creds.HasOpenDirectory(-1));
-}
-
-TEST(Credentials, HasOpenDirectoryWithFD) {
-  Credentials creds;
-
-  int proc_fd = open("/proc", O_RDONLY | O_DIRECTORY);
-  base::ScopedFD proc_fd_closer(proc_fd);
-  ASSERT_LE(0, proc_fd);
-
-  // Don't pass |proc_fd|, an open directory (proc_fd) should
-  // be detected.
-  EXPECT_TRUE(creds.HasOpenDirectory(-1));
-  // Pass |proc_fd| and no open directory should be detected.
-  EXPECT_FALSE(creds.HasOpenDirectory(proc_fd));
-
-  {
-    // Have a "/dev" file descriptor around.
-    int dev_fd = open("/dev", O_RDONLY | O_DIRECTORY);
-    base::ScopedFD dev_fd_closer(dev_fd);
-    EXPECT_TRUE(creds.HasOpenDirectory(proc_fd));
-  }
-
-  // The "/dev" file descriptor should now be closed, |proc_fd| is the only
-  // directory file descriptor open.
-  EXPECT_FALSE(creds.HasOpenDirectory(proc_fd));
-}
-
 SANDBOX_TEST(Credentials, DropAllCaps) {
-  Credentials creds;
-  CHECK(creds.DropAllCapabilities());
-  CHECK(!creds.HasAnyCapability());
+  CHECK(Credentials::DropAllCapabilities());
+  CHECK(!Credentials::HasAnyCapability());
 }
 
 SANDBOX_TEST(Credentials, GetCurrentCapString) {
-  Credentials creds;
-  CHECK(creds.DropAllCapabilities());
+  CHECK(Credentials::DropAllCapabilities());
   const char kNoCapabilityText[] = "=";
-  CHECK(*creds.GetCurrentCapString() == kNoCapabilityText);
+  CHECK(*Credentials::GetCurrentCapString() == kNoCapabilityText);
 }
 
 SANDBOX_TEST(Credentials, MoveToNewUserNS) {
-  Credentials creds;
-  creds.DropAllCapabilities();
-  bool moved_to_new_ns = creds.MoveToNewUserNS();
+  CHECK(Credentials::DropAllCapabilities());
+  bool moved_to_new_ns = Credentials::MoveToNewUserNS();
   fprintf(stdout,
           "Unprivileged CLONE_NEWUSER supported: %s\n",
           moved_to_new_ns ? "true." : "false.");
@@ -134,28 +72,26 @@ SANDBOX_TEST(Credentials, MoveToNewUserNS) {
     fflush(stdout);
     return;
   }
-  CHECK(creds.HasAnyCapability());
-  creds.DropAllCapabilities();
-  CHECK(!creds.HasAnyCapability());
+  CHECK(Credentials::HasAnyCapability());
+  CHECK(Credentials::DropAllCapabilities());
+  CHECK(!Credentials::HasAnyCapability());
 }
 
 SANDBOX_TEST(Credentials, SupportsUserNS) {
-  Credentials creds;
-  creds.DropAllCapabilities();
+  CHECK(Credentials::DropAllCapabilities());
   bool user_ns_supported = Credentials::SupportsNewUserNS();
-  bool moved_to_new_ns = creds.MoveToNewUserNS();
+  bool moved_to_new_ns = Credentials::MoveToNewUserNS();
   CHECK_EQ(user_ns_supported, moved_to_new_ns);
 }
 
 SANDBOX_TEST(Credentials, UidIsPreserved) {
-  Credentials creds;
-  creds.DropAllCapabilities();
+  CHECK(Credentials::DropAllCapabilities());
   uid_t old_ruid, old_euid, old_suid;
   gid_t old_rgid, old_egid, old_sgid;
   PCHECK(0 == getresuid(&old_ruid, &old_euid, &old_suid));
   PCHECK(0 == getresgid(&old_rgid, &old_egid, &old_sgid));
   // Probably missing kernel support.
-  if (!creds.MoveToNewUserNS()) return;
+  if (!Credentials::MoveToNewUserNS()) return;
   uid_t new_ruid, new_euid, new_suid;
   PCHECK(0 == getresuid(&new_ruid, &new_euid, &new_suid));
   CHECK(old_ruid == new_ruid);
@@ -169,27 +105,25 @@ SANDBOX_TEST(Credentials, UidIsPreserved) {
   CHECK(old_sgid == new_sgid);
 }
 
-bool NewUserNSCycle(Credentials* creds) {
-  DCHECK(creds);
-  if (!creds->MoveToNewUserNS() ||
-      !creds->HasAnyCapability() ||
-      !creds->DropAllCapabilities() ||
-      creds->HasAnyCapability()) {
+bool NewUserNSCycle() {
+  if (!Credentials::MoveToNewUserNS() ||
+      !Credentials::HasAnyCapability() ||
+      !Credentials::DropAllCapabilities() ||
+      Credentials::HasAnyCapability()) {
     return false;
   }
   return true;
 }
 
 SANDBOX_TEST(Credentials, NestedUserNS) {
-  Credentials creds;
-  CHECK(creds.DropAllCapabilities());
+  CHECK(Credentials::DropAllCapabilities());
   // Probably missing kernel support.
-  if (!creds.MoveToNewUserNS()) return;
-  creds.DropAllCapabilities();
+  if (!Credentials::MoveToNewUserNS()) return;
+  CHECK(Credentials::DropAllCapabilities());
   // As of 3.12, the kernel has a limit of 32. See create_user_ns().
   const int kNestLevel = 10;
   for (int i = 0; i < kNestLevel; ++i) {
-    CHECK(NewUserNSCycle(&creds)) << "Creating new user NS failed at iteration "
+    CHECK(NewUserNSCycle()) << "Creating new user NS failed at iteration "
                                   << i << ".";
   }
 }
@@ -203,11 +137,10 @@ TEST(Credentials, CanDetectRoot) {
 }
 
 SANDBOX_TEST(Credentials, DISABLE_ON_LSAN(DropFileSystemAccessIsSafe)) {
-  Credentials creds;
-  CHECK(creds.DropAllCapabilities());
+  CHECK(Credentials::DropAllCapabilities());
   // Probably missing kernel support.
-  if (!creds.MoveToNewUserNS()) return;
-  CHECK(creds.DropFileSystemAccess());
+  if (!Credentials::MoveToNewUserNS()) return;
+  CHECK(Credentials::DropFileSystemAccess());
   CHECK(!DirectoryExists("/proc"));
   CHECK(WorkingDirectoryIsRoot());
   // We want the chroot to never have a subdirectory. A subdirectory
@@ -218,17 +151,16 @@ SANDBOX_TEST(Credentials, DISABLE_ON_LSAN(DropFileSystemAccessIsSafe)) {
 // Check that after dropping filesystem access and dropping privileges
 // it is not possible to regain capabilities.
 SANDBOX_TEST(Credentials, DISABLE_ON_LSAN(CannotRegainPrivileges)) {
-  Credentials creds;
-  CHECK(creds.DropAllCapabilities());
+  CHECK(Credentials::DropAllCapabilities());
   // Probably missing kernel support.
-  if (!creds.MoveToNewUserNS()) return;
-  CHECK(creds.DropFileSystemAccess());
-  CHECK(creds.DropAllCapabilities());
+  if (!Credentials::MoveToNewUserNS()) return;
+  CHECK(Credentials::DropFileSystemAccess());
+  CHECK(Credentials::DropAllCapabilities());
 
   // The kernel should now prevent us from regaining capabilities because we
   // are in a chroot.
   CHECK(!Credentials::SupportsNewUserNS());
-  CHECK(!creds.MoveToNewUserNS());
+  CHECK(!Credentials::MoveToNewUserNS());
 }
 
 }  // namespace.

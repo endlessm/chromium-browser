@@ -11,6 +11,8 @@
 #include <unistd.h>
 
 #include <limits>
+#include <string>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
@@ -30,7 +32,7 @@
 #include "content/common/sandbox_linux/sandbox_seccomp_bpf_linux.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/sandbox_linux.h"
-#include "sandbox/linux/services/credentials.h"
+#include "sandbox/linux/services/proc_util.h"
 #include "sandbox/linux/services/thread_helpers.h"
 #include "sandbox/linux/services/yama.h"
 #include "sandbox/linux/suid/client/setuid_sandbox_client.h"
@@ -90,10 +92,12 @@ int OpenProcTaskFd(int proc_fd) {
   if (proc_fd >= 0) {
     // If a handle to /proc is available, use it. This allows to bypass file
     // system restrictions.
-    proc_self_task = openat(proc_fd, "self/task/", O_RDONLY | O_DIRECTORY);
+    proc_self_task =
+        openat(proc_fd, "self/task/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   } else {
     // Otherwise, make an attempt to access the file system directly.
-    proc_self_task = open("/proc/self/task/", O_RDONLY | O_DIRECTORY);
+    proc_self_task =
+        open("/proc/self/task/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   }
   return proc_self_task;
 }
@@ -108,7 +112,9 @@ LinuxSandbox::LinuxSandbox()
       sandbox_status_flags_(kSandboxLinuxInvalid),
       pre_initialized_(false),
       seccomp_bpf_supported_(false),
+      seccomp_bpf_with_tsync_supported_(false),
       yama_is_enforcing_(false),
+      initialize_sandbox_ran_(false),
       setuid_sandbox_client_(sandbox::SetuidSandboxClient::Create())
 {
   if (setuid_sandbox_client_ == NULL) {
@@ -121,6 +127,9 @@ LinuxSandbox::LinuxSandbox()
 }
 
 LinuxSandbox::~LinuxSandbox() {
+  if (pre_initialized_) {
+    CHECK(initialize_sandbox_ran_);
+  }
 }
 
 LinuxSandbox* LinuxSandbox::GetInstance() {
@@ -144,18 +153,24 @@ void LinuxSandbox::PreinitializeSandbox() {
   // its contents before the sandbox is enabled.  It also pre-opens the
   // object files that are already loaded in the process address space.
   base::debug::EnableInProcessStackDumpingForSandbox();
+#endif  // !defined(NDEBUG)
 
-  // Open proc_fd_ only in Debug mode so that forgetting to close it doesn't
-  // produce a sandbox escape in Release mode.
+  // Open proc_fd_. It would break the security of the setuid sandbox if it was
+  // not closed.
+  // If LinuxSandbox::PreinitializeSandbox() runs, InitializeSandbox() must run
+  // as well.
   proc_fd_ = open("/proc", O_DIRECTORY | O_RDONLY | O_CLOEXEC);
   CHECK_GE(proc_fd_, 0);
-#endif  // !defined(NDEBUG)
   // We "pre-warm" the code that detects supports for seccomp BPF.
   if (SandboxSeccompBPF::IsSeccompBPFDesired()) {
     if (!SandboxSeccompBPF::SupportsSandbox()) {
       VLOG(1) << "Lacking support for seccomp-bpf sandbox.";
     } else {
       seccomp_bpf_supported_ = true;
+    }
+
+    if (SandboxSeccompBPF::SupportsSandboxWithTsync()) {
+      seccomp_bpf_with_tsync_supported_ = true;
     }
   }
 
@@ -165,6 +180,14 @@ void LinuxSandbox::PreinitializeSandbox() {
   yama_is_enforcing_ = (yama_status & Yama::STATUS_PRESENT) &&
                        (yama_status & Yama::STATUS_ENFORCING);
   pre_initialized_ = true;
+}
+
+std::vector<int> LinuxSandbox::GetFileDescriptorsToClose() {
+  std::vector<int> fds;
+  if (proc_fd_ >= 0) {
+    fds.push_back(proc_fd_);
+  }
+  return fds;
 }
 
 bool LinuxSandbox::InitializeSandbox() {
@@ -178,7 +201,9 @@ void LinuxSandbox::StopThread(base::Thread* thread) {
 }
 
 int LinuxSandbox::GetStatus() {
-  CHECK(pre_initialized_);
+  if (!pre_initialized_) {
+    return 0;
+  }
   if (kSandboxLinuxInvalid == sandbox_status_flags_) {
     // Initialize sandbox_status_flags_.
     sandbox_status_flags_ = 0;
@@ -197,6 +222,13 @@ int LinuxSandbox::GetStatus() {
       sandbox_status_flags_ |= kSandboxLinuxSeccompBPF;
     }
 
+#if 0
+    if (seccomp_bpf_with_tsync_supported() &&
+        SandboxSeccompBPF::ShouldEnableSeccompBPF(switches::kRendererProcess)) {
+      sandbox_status_flags_ |= kSandboxLinuxSeccompTSYNC;
+    }
+#endif
+
     if (yama_is_enforcing_) {
       sandbox_status_flags_ |= kSandboxLinuxYama;
     }
@@ -209,27 +241,14 @@ int LinuxSandbox::GetStatus() {
 // PID namespaces and existing sandboxes, so "self" must really be used instead
 // of using the pid.
 bool LinuxSandbox::IsSingleThreaded() const {
-  bool is_single_threaded = false;
   base::ScopedFD proc_self_task(OpenProcTaskFd(proc_fd_));
 
-// In Debug mode, it's mandatory to be able to count threads to catch bugs.
-#if !defined(NDEBUG)
-  // Using CHECK here since we want to check all the cases where
-  // !defined(NDEBUG)
-  // gets built.
   CHECK(proc_self_task.is_valid())
       << "Could not count threads, the sandbox was not "
       << "pre-initialized properly.";
-#endif  // !defined(NDEBUG)
 
-  if (!proc_self_task.is_valid()) {
-    // Pretend to be monothreaded if it can't be determined (for instance the
-    // setuid sandbox is already engaged but no proc_fd_ is available).
-    is_single_threaded = true;
-  } else {
-    is_single_threaded =
-        sandbox::ThreadHelpers::IsSingleThreaded(proc_self_task.get());
-  }
+  const bool is_single_threaded =
+      sandbox::ThreadHelpers::IsSingleThreaded(proc_self_task.get());
 
   return is_single_threaded;
 }
@@ -247,16 +266,23 @@ sandbox::SetuidSandboxClient*
 bool LinuxSandbox::StartSeccompBPF(const std::string& process_type) {
   CHECK(!seccomp_bpf_started_);
   CHECK(pre_initialized_);
-  if (seccomp_bpf_supported())
-    seccomp_bpf_started_ = SandboxSeccompBPF::StartSandbox(process_type);
+  if (seccomp_bpf_supported()) {
+    base::ScopedFD proc_self_task(OpenProcTaskFd(proc_fd_));
+    seccomp_bpf_started_ =
+        SandboxSeccompBPF::StartSandbox(process_type, proc_self_task.Pass());
+  }
 
-  if (seccomp_bpf_started_)
+  if (seccomp_bpf_started_) {
     LogSandboxStarted("seccomp-bpf");
+  }
 
   return seccomp_bpf_started_;
 }
 
 bool LinuxSandbox::InitializeSandboxImpl() {
+  DCHECK(!initialize_sandbox_ran_);
+  initialize_sandbox_ran_ = true;
+
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   const std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
@@ -329,6 +355,11 @@ bool LinuxSandbox::seccomp_bpf_supported() const {
   return seccomp_bpf_supported_;
 }
 
+bool LinuxSandbox::seccomp_bpf_with_tsync_supported() const {
+  CHECK(pre_initialized_);
+  return seccomp_bpf_with_tsync_supported_;
+}
+
 bool LinuxSandbox::LimitAddressSpace(const std::string& process_type) {
   (void) process_type;
 #if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
@@ -379,7 +410,7 @@ bool LinuxSandbox::LimitAddressSpace(const std::string& process_type) {
 }
 
 bool LinuxSandbox::HasOpenDirectories() const {
-  return sandbox::Credentials().HasOpenDirectory(proc_fd_);
+  return sandbox::ProcUtil::HasOpenDirectory(proc_fd_);
 }
 
 void LinuxSandbox::SealSandbox() {

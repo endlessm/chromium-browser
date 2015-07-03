@@ -139,8 +139,7 @@ void SincResampler::InitializeCPUSpecificFeatures() {}
 #define CONVOLVE_FUNC convolve_proc_
 
 void SincResampler::InitializeCPUSpecificFeatures() {
-  convolve_proc_ = WebRtc_GetCPUFeaturesARM() & kCPUFeatureNEON ?
-      Convolve_NEON : Convolve_C;
+  convolve_proc_ = Convolve_C;
 }
 #endif
 #else

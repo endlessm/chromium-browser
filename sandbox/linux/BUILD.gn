@@ -10,7 +10,7 @@ declare_args() {
   compile_credentials = is_linux
 
   compile_seccomp_bpf_demo =
-    (is_linux && (cpu_arch == "x86" || cpu_arch == "x64"))
+      is_linux && (cpu_arch == "x86" || cpu_arch == "x64")
 }
 
 # We have two principal targets: sandbox and sandbox_linux_unittests
@@ -58,9 +58,7 @@ source_set("sandbox_linux_test_utils") {
       "seccomp-bpf/sandbox_bpf_test_runner.cc",
       "seccomp-bpf/sandbox_bpf_test_runner.h",
     ]
-    deps += [
-      ":seccomp_bpf",
-    ]
+    deps += [ ":seccomp_bpf" ]
   }
 }
 
@@ -68,13 +66,16 @@ source_set("sandbox_linux_test_utils") {
 test("sandbox_linux_unittests") {
   sources = [
     "services/scoped_process_unittest.cc",
+    "services/syscall_wrappers_unittest.cc",
     "services/thread_helpers_unittests.cc",
     "services/yama_unittests.cc",
+    "syscall_broker/broker_file_permission_unittest.cc",
     "syscall_broker/broker_process_unittest.cc",
     "tests/main.cc",
     "tests/scoped_temporary_file.cc",
     "tests/scoped_temporary_file.h",
     "tests/scoped_temporary_file_unittest.cc",
+    "tests/test_utils_unittest.cc",
     "tests/unit_tests_unittest.cc",
   ]
 
@@ -92,9 +93,7 @@ test("sandbox_linux_unittests") {
   }
 
   if (compile_suid_client) {
-    sources += [
-      "suid/client/setuid_sandbox_client_unittest.cc",
-    ]
+    sources += [ "suid/client/setuid_sandbox_client_unittest.cc" ]
   }
   if (use_seccomp_bpf) {
     sources += [
@@ -106,6 +105,7 @@ test("sandbox_linux_unittests") {
       "seccomp-bpf/bpf_tests_unittest.cc",
       "seccomp-bpf/codegen_unittest.cc",
       "seccomp-bpf/errorcode_unittest.cc",
+      "seccomp-bpf/sandbox_bpf_unittest.cc",
       "seccomp-bpf/syscall_iterator_unittest.cc",
       "seccomp-bpf/syscall_unittest.cc",
     ]
@@ -113,6 +113,7 @@ test("sandbox_linux_unittests") {
   if (compile_credentials) {
     sources += [
       "services/credentials_unittest.cc",
+      "services/proc_util_unittest.cc",
       "services/unix_domain_socket_unittest.cc",
     ]
   }
@@ -150,15 +151,12 @@ component("seccomp_bpf") {
     "bpf_dsl/policy_compiler.cc",
     "bpf_dsl/policy_compiler.h",
     "bpf_dsl/trap_registry.h",
-    "seccomp-bpf/basicblock.cc",
-    "seccomp-bpf/basicblock.h",
     "seccomp-bpf/codegen.cc",
     "seccomp-bpf/codegen.h",
     "seccomp-bpf/die.cc",
     "seccomp-bpf/die.h",
     "seccomp-bpf/errorcode.cc",
     "seccomp-bpf/errorcode.h",
-    "seccomp-bpf/instruction.h",
     "seccomp-bpf/linux_seccomp.h",
     "seccomp-bpf/sandbox_bpf.cc",
     "seccomp-bpf/sandbox_bpf.h",
@@ -174,6 +172,7 @@ component("seccomp_bpf") {
   defines = [ "SANDBOX_IMPLEMENTATION" ]
 
   deps = [
+    ":sandbox_services",
     ":sandbox_services_headers",
     "//base",
   ]
@@ -199,7 +198,7 @@ component("seccomp_bpf_helpers") {
 }
 
 if (is_linux) {
-# The setuid sandbox for Linux.
+  # The setuid sandbox for Linux.
   executable("chrome_sandbox") {
     sources = [
       "suid/common/sandbox.h",
@@ -212,6 +211,7 @@ if (is_linux) {
     cflags = [
       # For ULLONG_MAX
       "-std=gnu99",
+
       # These files have a suspicious comparison.
       # TODO fix this and re-enable this warning.
       "-Wno-sign-compare",
@@ -225,13 +225,19 @@ component("sandbox_services") {
     "services/init_process_reaper.h",
     "services/scoped_process.cc",
     "services/scoped_process.h",
+    "services/syscall_wrappers.cc",
+    "services/syscall_wrappers.h",
     "services/thread_helpers.cc",
     "services/thread_helpers.h",
     "services/yama.h",
     "services/yama.cc",
+    "syscall_broker/broker_channel.cc",
+    "syscall_broker/broker_channel.h",
     "syscall_broker/broker_client.cc",
     "syscall_broker/broker_client.h",
     "syscall_broker/broker_common.h",
+    "syscall_broker/broker_file_permission.cc",
+    "syscall_broker/broker_file_permission.h",
     "syscall_broker/broker_host.cc",
     "syscall_broker/broker_host.h",
     "syscall_broker/broker_policy.cc",
@@ -246,7 +252,10 @@ component("sandbox_services") {
     sources += [
       "services/credentials.cc",
       "services/credentials.h",
+      "services/proc_util.cc",
+      "services/proc_util.h",
     ]
+
     # For capabilities.cc.
     configs += [ "//build/config/linux:libcap" ]
   }
@@ -318,7 +327,6 @@ if (is_android) {
   #    ":sandbox_linux_unittests",
   #  ]
   #}
-
   # TODO(GYP) convert this.
   #      {
   #      'target_name': 'sandbox_linux_jni_unittests_apk',

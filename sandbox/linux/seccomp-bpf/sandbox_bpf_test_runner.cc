@@ -31,20 +31,12 @@ void SandboxBPFTestRunner::Run() {
   scoped_ptr<bpf_dsl::Policy> policy =
       bpf_tester_delegate_->GetSandboxBPFPolicy();
 
-  if (sandbox::SandboxBPF::SupportsSeccompSandbox(-1) ==
-      sandbox::SandboxBPF::STATUS_AVAILABLE) {
-    // Ensure the the sandbox is actually available at this time
-    int proc_fd;
-    SANDBOX_ASSERT((proc_fd = open("/proc", O_RDONLY | O_DIRECTORY)) >= 0);
-    SANDBOX_ASSERT(sandbox::SandboxBPF::SupportsSeccompSandbox(proc_fd) ==
-                   sandbox::SandboxBPF::STATUS_AVAILABLE);
-
+  if (sandbox::SandboxBPF::SupportsSeccompSandbox(
+          SandboxBPF::SeccompLevel::SINGLE_THREADED)) {
     // Initialize and then start the sandbox with our custom policy
-    sandbox::SandboxBPF sandbox;
-    sandbox.set_proc_fd(proc_fd);
-    sandbox.SetSandboxPolicy(policy.release());
-    SANDBOX_ASSERT(
-        sandbox.StartSandbox(sandbox::SandboxBPF::PROCESS_SINGLE_THREADED));
+    sandbox::SandboxBPF sandbox(policy.release());
+    SANDBOX_ASSERT(sandbox.StartSandbox(
+        sandbox::SandboxBPF::SeccompLevel::SINGLE_THREADED));
 
     // Run the actual test.
     bpf_tester_delegate_->RunTestFunction();
@@ -58,8 +50,7 @@ void SandboxBPFTestRunner::Run() {
     }
     // Call the compiler and verify the policy. That's the least we can do,
     // if we don't have kernel support.
-    sandbox::SandboxBPF sandbox;
-    sandbox.SetSandboxPolicy(policy.release());
+    sandbox::SandboxBPF sandbox(policy.release());
     sandbox.AssembleFilter(true /* force_verification */);
     sandbox::UnitTests::IgnoreThisTest();
   }
