@@ -3641,7 +3641,7 @@
                   '-fomit-frame-pointer',
                 ],
               }],
-              ['OS=="linux" and target_arch=="ia32"', {
+              ['OS=="linux"', {
                 'ldflags': [
                   '-Wl,--no-as-needed',
                 ],
@@ -3688,7 +3688,6 @@
               # Specifically tell the linker to perform optimizations.
               # See http://lwn.net/Articles/192624/ .
               '-Wl,-O1',
-              '-Wl,--as-needed',
             ],
             'conditions' : [
               ['no_gc_sections==0', {
@@ -3731,6 +3730,11 @@
                 'cflags': ['-funwind-tables'],
               }, {
                 'cflags': ['-fno-unwind-tables', '-fno-asynchronous-unwind-tables'],
+              }],
+              ['OS=="linux"', {
+                'ldflags': [
+                  '-Wl,--no-as-needed',
+                ],
               }],
             ],
           },
