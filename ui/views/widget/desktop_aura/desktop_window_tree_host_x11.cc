@@ -86,6 +86,7 @@ const char* kAtomsToCache[] = {
   "_NET_WM_DESKTOP",
   "_NET_WM_ICON",
   "_NET_WM_NAME",
+  "_NET_WM_OPAQUE_REGION",
   "_NET_WM_PID",
   "_NET_WM_PING",
   "_NET_WM_STATE",
@@ -1463,6 +1464,18 @@ void DesktopWindowTreeHostX11::DispatchTouchEvent(ui::TouchEvent* event) {
 }
 
 void DesktopWindowTreeHostX11::ResetWindowRegion() {
+  unsigned long region[] = { 0, 0,
+    static_cast<unsigned long>(bounds_.width()),
+    static_cast<unsigned long>(bounds_.height()) };
+  XChangeProperty(xdisplay_,
+                  xwindow_,
+                  atom_cache_.GetAtom("_NET_WM_OPAQUE_REGION"),
+                  XA_CARDINAL,
+                  32,
+                  PropModeReplace,
+                  reinterpret_cast<unsigned char*>(region),
+                  4);
+
   // If a custom window shape was supplied then apply it.
   if (custom_window_shape_) {
     XShapeCombineRegion(
