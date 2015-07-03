@@ -211,10 +211,15 @@ void SetupSandbox(const base::CommandLine& parsed_command_line) {
   std::unique_ptr<sandbox::SetuidSandboxHost> setuid_sandbox_host(
       sandbox::SetuidSandboxHost::Create());
 
-  const bool want_setuid_sandbox =
+  bool want_setuid_sandbox =
       !parsed_command_line.HasSwitch(switches::kNoSandbox) &&
       !parsed_command_line.HasSwitch(switches::kDisableSetuidSandbox) &&
       !setuid_sandbox_host->IsDisabledViaEnvironment();
+
+#if defined (ARCH_CPU_ARMEL)
+/* Don't setuid sandbox on ARM, so we can decode in the renderer thread */
+  want_setuid_sandbox = false;
+#endif
 
   static const char no_suid_error[] =
       "Running without the SUID sandbox! See "
