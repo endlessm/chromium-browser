@@ -93,7 +93,7 @@ class MEDIA_GPU_EXPORT GpuVideoDecodeAcceleratorFactory {
       const gpu::GpuDriverBugWorkarounds& workarounds,
       const gpu::GpuPreferences& gpu_preferences) const;
 #endif
-#if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
+#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(USE_V4L2_CODEC)
   std::unique_ptr<VideoDecodeAccelerator> CreateV4L2VDA(
       const gpu::GpuDriverBugWorkarounds& workarounds,
       const gpu::GpuPreferences& gpu_preferences) const;

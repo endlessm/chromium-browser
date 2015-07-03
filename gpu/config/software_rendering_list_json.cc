@@ -394,6 +394,7 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
         "all"
       ]
     },
+#if 0
     {
       "id": 48,
       "description": "Accelerated video decode is unavailable on Linux",
@@ -405,6 +406,7 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
         "accelerated_video_decode"
       ]
     },
+#endif
     {
       "id": 50,
       "description": "Disable VMware software renderer on older Mesa",
