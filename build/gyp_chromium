@@ -273,7 +273,7 @@ if __name__ == '__main__':
   # nice and fail here, rather than choking in gyp.
   if re.search(r'(^|,|\s)make($|,|\s)', os.environ.get('GYP_GENERATORS', '')):
     print 'Error: make gyp generator not supported (check GYP_GENERATORS).'
-    sys.exit(1)
+    #sys.exit(1)
 
   # If CHROMIUM_GYP_SYNTAX_CHECK is set to 1, it will invoke gyp with --check
   # to enfore syntax checking.
