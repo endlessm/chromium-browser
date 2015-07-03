@@ -299,6 +299,7 @@ void ExternalProtocolHandler::PrepopulateDictionary(
 
   static const char* const allowed_schemes[] = {
     "endlessm-app",
+    "help",
     "mailto",
     "news",
     "snews",
