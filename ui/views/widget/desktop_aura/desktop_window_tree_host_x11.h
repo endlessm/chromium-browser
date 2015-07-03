@@ -85,7 +85,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // internal list of open windows.
   static void CleanUpWindowList(void (*func)(aura::Window* window));
 
-  void SetSessionID(uint32 sessionid);
+  void SetSessionID(uint32 sessionid) override;
 
  protected:
   // Overridden from DesktopWindowTreeHost:
