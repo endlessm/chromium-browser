@@ -153,8 +153,11 @@ void TouchFactory::UpdateDeviceList(Display* display) {
           XITouchClassInfo* tci =
               reinterpret_cast<XITouchClassInfo*>(xiclassinfo);
           // Only care direct touch device (such as touch screen) right now
-          if (tci->mode == XIDirectTouch)
+          if (tci->mode == XIDirectTouch) {
             CacheTouchscreenIds(display, devinfo->deviceid);
+            touch_device_lookup_[devinfo->deviceid] = true;
+            touch_device_list_[devinfo->deviceid] = true;
+          }
         }
       }
     }
