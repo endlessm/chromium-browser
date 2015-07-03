@@ -70,7 +70,7 @@ constexpr const char* kDeniedSchemes[] = {
 };
 
 constexpr const char* kAllowedSchemes[] = {
-    "mailto", "news", "snews",
+    "endlessm-app", "help", "mailto", "news", "snews",
 };
 
 // Functions enabling unit testing. Using a NULL delegate will use the default
