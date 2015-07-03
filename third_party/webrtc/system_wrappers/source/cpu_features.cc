@@ -31,14 +31,9 @@ uint64_t WebRtc_GetCPUFeaturesARM() {
 	static bool detected = false;
 	static uint64_t have_neon = 0;
 
-	int fd;
-	Elf32_auxv_t auxv;
-	unsigned int hwcaps;
-
 	if (!detected) {
 		int fd;
 		Elf32_auxv_t auxv;
-		unsigned int hwcaps;
 
 		fd = open("/proc/self/auxv", O_RDONLY);
 		if (fd >= 0) {
