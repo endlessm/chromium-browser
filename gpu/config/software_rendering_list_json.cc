@@ -483,6 +483,7 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
         "all"
       ]
     },
+#if 0
     {
       "id": 48,
       "description": "Accelerated video decode is unavailable on Linux",
@@ -494,6 +495,7 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
         "accelerated_video_decode"
       ]
     },
+#endif
     {
       "id": 49,
       "description": "NVidia GeForce GT 650M can cause the system to hang with flash 3D",
