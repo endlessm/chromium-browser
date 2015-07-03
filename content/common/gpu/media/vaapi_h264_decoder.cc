@@ -7,7 +7,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/numerics/safe_conversions.h"
+#include "base/safe_numerics.h"
 #include "base/stl_util.h"
 #include "content/common/gpu/media/vaapi_h264_decoder.h"
 
@@ -1405,7 +1405,7 @@ static int LevelToMaxDpbMbs(int level) {
 bool VaapiH264Decoder::UpdateMaxNumReorderFrames(const media::H264SPS* sps) {
   if (sps->vui_parameters_present_flag && sps->bitstream_restriction_flag) {
     max_num_reorder_frames_ =
-        base::checked_cast<size_t>(sps->max_num_reorder_frames);
+        static_cast<size_t>(sps->max_num_reorder_frames);
     if (max_num_reorder_frames_ > dpb_.max_num_pics()) {
       DVLOG(1)
           << "max_num_reorder_frames present, but larger than MaxDpbFrames ("

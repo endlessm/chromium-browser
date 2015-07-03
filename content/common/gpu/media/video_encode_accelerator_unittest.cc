@@ -8,7 +8,7 @@
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/memory/scoped_vector.h"
-#include "base/numerics/safe_conversions.h"
+#include "base/safe_numerics.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -819,7 +819,7 @@ void VEAClient::BitstreamBufferReady(int32 bitstream_buffer_id,
   seen_keyframe_in_this_buffer_ = false;
 
   if (save_to_file_) {
-    int size = base::checked_cast<int>(payload_size);
+    int size = static_cast<int>(payload_size);
     EXPECT_TRUE(base::AppendToFile(
                     base::FilePath::FromUTF8Unsafe(test_stream_->out_filename),
                     static_cast<char*>(shm->memory()),

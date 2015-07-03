@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
-#include "base/numerics/safe_conversions.h"
+#include "base/safe_numerics.h"
 // Auto-generated for dlopen libva libraries
 #include "content/common/gpu/media/va_stubs.h"
 #include "third_party/libyuv/include/libyuv.h"
@@ -234,7 +234,7 @@ bool VaapiWrapper::GetSupportedVaProfiles(std::vector<VAProfile>* profiles) {
   // Query the driver for supported profiles.
   int max_profiles = vaMaxNumProfiles(va_display_);
   std::vector<VAProfile> supported_profiles(
-      base::checked_cast<size_t>(max_profiles));
+      static_cast<size_t>(max_profiles));
 
   int num_supported_profiles;
   VAStatus va_res = vaQueryConfigProfiles(
@@ -245,7 +245,7 @@ bool VaapiWrapper::GetSupportedVaProfiles(std::vector<VAProfile>* profiles) {
     return false;
   }
 
-  supported_profiles.resize(base::checked_cast<size_t>(num_supported_profiles));
+  supported_profiles.resize(static_cast<size_t>(num_supported_profiles));
   *profiles = supported_profiles;
   return true;
 }
