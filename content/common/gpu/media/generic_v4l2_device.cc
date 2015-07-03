@@ -221,7 +221,7 @@ EGLImageKHR GenericV4L2Device::CreateEGLImage(EGLDisplay egl_display,
     expbuf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     expbuf.index = buffer_index;
     expbuf.plane = i;
-    expbuf.flags = O_CLOEXEC;
+    expbuf.flags = O_CLOEXEC | O_RDONLY;
     if (Ioctl(VIDIOC_EXPBUF, &expbuf) != 0) {
       return EGL_NO_IMAGE_KHR;
     }
