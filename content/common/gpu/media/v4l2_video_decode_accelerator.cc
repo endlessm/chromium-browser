@@ -1824,11 +1824,13 @@ bool V4L2VideoDecodeAccelerator::CreateOutputBuffers() {
   DCHECK(output_buffer_map_.empty());
 
   // Number of output buffers we need.
+#if 0
   struct v4l2_control ctrl;
   memset(&ctrl, 0, sizeof(ctrl));
   ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_G_CTRL, &ctrl);
   output_dpb_size_ = ctrl.value;
+#endif
 
   // Output format setup in Initialize().
 
@@ -2008,6 +2010,7 @@ void V4L2VideoDecodeAccelerator::PictureCleared() {
 bool V4L2VideoDecodeAccelerator::IsResolutionChangeNecessary() {
   DVLOG(3) << "IsResolutionChangeNecessary() ";
 
+#if 0
   struct v4l2_control ctrl;
   memset(&ctrl, 0, sizeof(ctrl));
   ctrl.id = V4L2_CID_MIN_BUFFERS_FOR_CAPTURE;
@@ -2017,6 +2020,7 @@ bool V4L2VideoDecodeAccelerator::IsResolutionChangeNecessary() {
         << "IsResolutionChangeNecessary(): Returning true since DPB mismatch ";
     return true;
   }
+#endif
   struct v4l2_format format;
   bool again = false;
   bool ret = GetFormatInfo(&format, nullptr, &again);
