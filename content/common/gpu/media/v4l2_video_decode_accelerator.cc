@@ -255,8 +255,7 @@ bool V4L2VideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
   // Capabilities check.
   struct v4l2_capability caps;
   const __u32 kCapsRequired =
-      V4L2_CAP_VIDEO_CAPTURE_MPLANE |
-      V4L2_CAP_VIDEO_OUTPUT_MPLANE |
+      V4L2_CAP_VIDEO_M2M_MPLANE |
       V4L2_CAP_STREAMING;
   IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_QUERYCAP, &caps);
   if ((caps.capabilities & kCapsRequired) != kCapsRequired) {
