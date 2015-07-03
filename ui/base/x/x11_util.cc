@@ -1036,6 +1036,8 @@ void SetWindowRole(XDisplay* display, XID window, const std::string& role) {
 }
 
 bool GetCustomFramePrefDefault() {
+  return false;
+
   // If the window manager doesn't support enough of EWMH to tell us its name,
   // assume that it doesn't want custom frames. For example, _NET_WM_MOVERESIZE
   // is needed for frame-drag-initiated window movement.
