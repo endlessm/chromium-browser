@@ -623,10 +623,17 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint)
     WTF_LOG(Media, "HTMLMediaElement::removedFrom(%p, %p)", this, insertionPoint);
 
     m_active = false;
+
+/* Cancel load when removed from the active page to reduce hw decoder usage */
+    userCancelledLoad();
+
+    // Stop the playback without generating events
+    m_playing = false;
+
     if (insertionPoint->inDocument() && insertionPoint->document().isActive()) {
         configureMediaControls();
-        if (m_networkState > NETWORK_EMPTY)
-            pause();
+    //    if (m_networkState > NETWORK_EMPTY)
+    //        pause();
     }
 
     HTMLElement::removedFrom(insertionPoint);
@@ -2286,6 +2293,11 @@ void HTMLMediaElement::play()
         m_userGestureRequiredForPlay = false;
     }
 
+/* Ignore play request if the element isn't in the active page to minimize
+ * hardware decoder resource usage */
+    if (!m_active)
+      return;
+
     playInternal();
 }
 
@@ -2350,6 +2362,11 @@ void HTMLMediaElement::gesturelessInitialPlayHalted()
 void HTMLMediaElement::pause()
 {
     WTF_LOG(Media, "HTMLMediaElement::pause(%p)", this);
+
+/* Ignore pause request if the element isn't in the active page to minimize
+ * hardware decoder resource usage */
+    if (!m_active)
+      return;
 
     if (!m_player || m_networkState == NETWORK_EMPTY)
         scheduleDelayedAction(LoadMediaResource);
