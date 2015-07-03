@@ -49,7 +49,7 @@ namespace {
 
 // Default (for countries with no better engine set)
 const PrepopulatedEngine* engines_default[] =
-    { &google, &bing, &yahoo, };
+    { &google, &bing, &yahoo, &duckduckgo, };
 
 // United Arab Emirates
 const PrepopulatedEngine* engines_AE[] =
@@ -141,7 +141,7 @@ const PrepopulatedEngine* engines_CZ[] =
 
 // Germany
 const PrepopulatedEngine* engines_DE[] =
-    { &google, &bing_de_DE, &yahoo_de };
+    { &google, &bing_de_DE, &yahoo_de, &duckduckgo, };
 
 // Denmark
 const PrepopulatedEngine* engines_DK[] =
@@ -181,11 +181,11 @@ const PrepopulatedEngine* engines_FI[] =
 
 // France
 const PrepopulatedEngine* engines_FR[] =
-    { &google, &bing_fr_FR, &yahoo_fr, };
+    { &google, &bing_fr_FR, &yahoo_fr, &duckduckgo, };
 
 // United Kingdom
 const PrepopulatedEngine* engines_GB[] =
-    { &google, &bing_en_GB, &yahoo_uk, &ask_uk, };
+    { &google, &bing_en_GB, &yahoo_uk, &ask_uk, &duckduckgo, };
 
 // Greece
 const PrepopulatedEngine* engines_GR[] =
@@ -453,7 +453,7 @@ const PrepopulatedEngine* engines_UA[] =
 
 // United States
 const PrepopulatedEngine* engines_US[] =
-    { &google, &bing_en_US, &yahoo, &aol, &ask, };
+    { &google, &bing_en_US, &yahoo, &aol, &ask, &duckduckgo, };
 
 // Uruguay
 const PrepopulatedEngine* engines_UY[] =
@@ -491,6 +491,7 @@ const PrepopulatedEngine* kAllEngines[] = {
   &bing_fr_FR,   &bing_it_IT,   &bing_ja_JP,   &bing_lv_LV,   &bing_nb_NO,
   &bing_nl_BE,   &bing_pl_PL,   &bing_pt_BR,   &bing_pt_PT,   &bing_ru_RU,
   &bing_sv_SE,   &bing_tr_TR,   &bing_zh_HK,   &bing_zh_TW,   &daum,
+  &duckduckgo,
   &google,       &kvasir,       &mail_ru,      &najdi,        &naver,
   &onet,         &seznam,       &sogou,        &vinden,       &virgilio,
   &yahoo,        &yahoo_ar,     &yahoo_at,     &yahoo_au,     &yahoo_br,
