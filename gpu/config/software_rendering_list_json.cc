@@ -200,6 +200,14 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
             "op": ">=",
             "value": "10.0.1"
           }
+        },
+        {
+          // Assume any intel chipset using a mesa driver at least of our
+          // version can use the GPU.
+          "driver_version": {
+            "op": ">=",
+            "value": "9.2"
+          }
         }
       ],
       "features": [
@@ -514,6 +522,11 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
         {
           "os": {
             "type": "chromeos"
+          }
+        },
+        {
+          "os": {
+            "type": "linux"
           }
         },
         {
