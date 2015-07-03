@@ -159,22 +159,18 @@ EGLImageKHR ExynosV4L2Device::CreateEGLImage(EGLDisplay egl_display,
     }
     dmabuf_fds[i].reset(expbuf.fd);
   }
-  DCHECK_EQ(planes_count, 2u);
+  DCHECK_EQ(planes_count, 1u);
   EGLint attrs[] = {
       EGL_WIDTH,                     0, EGL_HEIGHT,                    0,
       EGL_LINUX_DRM_FOURCC_EXT,      0, EGL_DMA_BUF_PLANE0_FD_EXT,     0,
       EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0, EGL_DMA_BUF_PLANE0_PITCH_EXT,  0,
-      EGL_DMA_BUF_PLANE1_FD_EXT,     0, EGL_DMA_BUF_PLANE1_OFFSET_EXT, 0,
-      EGL_DMA_BUF_PLANE1_PITCH_EXT,  0, EGL_NONE, };
+      EGL_NONE, };
   attrs[1] = frame_buffer_size.width();
   attrs[3] = frame_buffer_size.height();
-  attrs[5] = DRM_FORMAT_NV12;
+  attrs[5] = DRM_FORMAT_BGRA8888;
   attrs[7] = dmabuf_fds[0].get();
   attrs[9] = 0;
-  attrs[11] = frame_buffer_size.width();
-  attrs[13] = dmabuf_fds[1].get();
-  attrs[15] = 0;
-  attrs[17] = frame_buffer_size.width();
+  attrs[11] = frame_buffer_size.width() * 4;
 
   EGLImageKHR egl_image = eglCreateImageKHR(
       egl_display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attrs);
