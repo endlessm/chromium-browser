@@ -131,7 +131,7 @@ config("gpu_config") {
   if (is_chromeos && use_v4lplugin) {
     defines += [ "USE_LIBV4L2" ]
   }
-  if (is_chromeos && use_v4l2_codec) {
+  if (use_v4l2_codec) {
     defines += [ "USE_V4L2_CODEC" ]
   }
 }
@@ -238,7 +238,7 @@ component("gpu") {
     }
   }
 
-  if (is_chromeos) {
+  if (is_chromeos || (is_linux && current_cpu == "arm")) {
     sources += [
       "accelerated_video_decoder.h",
       "h264_decoder.cc",
@@ -267,10 +267,6 @@ component("gpu") {
         "v4l2_device.h",
         "v4l2_image_processor.cc",
         "v4l2_image_processor.h",
-        "v4l2_jpeg_decode_accelerator.cc",
-        "v4l2_jpeg_decode_accelerator.h",
-        "v4l2_slice_video_decode_accelerator.cc",
-        "v4l2_slice_video_decode_accelerator.h",
         "v4l2_video_decode_accelerator.cc",
         "v4l2_video_decode_accelerator.h",
         "v4l2_video_encode_accelerator.cc",
