@@ -445,6 +445,18 @@ void XWindow::SetFullscreen(bool fullscreen) {
                  x11::None);
 }
 
+void XWindow::SetBypassCompositor(unsigned long fullscreen) {
+  XChangeProperty(xdisplay_,
+                  xwindow_,
+                  gfx::GetAtom("_NET_WM_BYPASS_COMPOSITOR"),
+                  XA_CARDINAL,
+                  32,
+                  PropModeReplace,
+                  reinterpret_cast<unsigned char*>(&fullscreen),
+                  1);
+}
+
+
 void XWindow::Activate() {
   if (!IsVisible() || !activatable_)
     return;
