@@ -116,7 +116,7 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
  private:
   // These are rather subjectively tuned.
   enum {
-    kInputBufferCount = 8,
+    kInputBufferCount = 4,
     // TODO(posciak): determine input buffer size based on level limits.
     // See http://crbug.com/255116.
     // Input bitstream buffer size for up to 1080p streams.
