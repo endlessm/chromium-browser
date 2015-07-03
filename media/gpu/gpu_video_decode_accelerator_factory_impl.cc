@@ -14,14 +14,14 @@
 #include "media/gpu/dxva_video_decode_accelerator_win.h"
 #elif defined(OS_MACOSX)
 #include "media/gpu/vt_video_decode_accelerator_mac.h"
-#elif defined(OS_CHROMEOS)
+#elif defined(OS_CHROMEOS) || defined(OS_LINUX)
 #if defined(USE_V4L2_CODEC)
 #include "media/gpu/v4l2_device.h"
 #include "media/gpu/v4l2_slice_video_decode_accelerator.h"
 #include "media/gpu/v4l2_video_decode_accelerator.h"
 #include "ui/gl/gl_surface_egl.h"
 #endif
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_FAMILY) && defined(OS_CHROMEOS)
 #include "media/gpu/vaapi_video_decode_accelerator.h"
 #include "ui/gl/gl_implementation.h"
 #endif
@@ -79,17 +79,17 @@ GpuVideoDecodeAcceleratorFactoryImpl::GetDecoderCapabilities(
 #if defined(OS_WIN)
   capabilities.supported_profiles =
       DXVAVideoDecodeAccelerator::GetSupportedProfiles();
-#elif defined(OS_CHROMEOS)
+#elif defined(OS_CHROMEOS) || defined(OS_LINUX)
   media::VideoDecodeAccelerator::SupportedProfiles vda_profiles;
 #if defined(USE_V4L2_CODEC)
   vda_profiles = V4L2VideoDecodeAccelerator::GetSupportedProfiles();
   media::GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
       vda_profiles, &capabilities.supported_profiles);
-  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
-  media::GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
-      vda_profiles, &capabilities.supported_profiles);
+//  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
+//  media::GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
+//      vda_profiles, &capabilities.supported_profiles);
 #endif
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_FAMILY) && defined(OS_CHROMEOS)
   vda_profiles = VaapiVideoDecodeAccelerator::GetSupportedProfiles();
   media::GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
       vda_profiles, &capabilities.supported_profiles);
@@ -126,7 +126,7 @@ GpuVideoDecodeAcceleratorFactoryImpl::CreateVDA(
 #if defined(OS_WIN)
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateDXVAVDA,
 #endif
-#if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
+#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(USE_V4L2_CODEC)
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2VDA,
     &GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2SVDA,
 #endif
@@ -166,7 +166,7 @@ GpuVideoDecodeAcceleratorFactoryImpl::CreateDXVAVDA(
 }
 #endif
 
-#if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
+#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && defined(USE_V4L2_CODEC)
 std::unique_ptr<media::VideoDecodeAccelerator>
 GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2VDA(
     const gpu::GpuPreferences& gpu_preferences) const {
@@ -184,12 +184,14 @@ std::unique_ptr<media::VideoDecodeAccelerator>
 GpuVideoDecodeAcceleratorFactoryImpl::CreateV4L2SVDA(
     const gpu::GpuPreferences& gpu_preferences) const {
   std::unique_ptr<media::VideoDecodeAccelerator> decoder;
+#if defined(OS_CHROMEOS)
   scoped_refptr<V4L2Device> device = V4L2Device::Create(V4L2Device::kDecoder);
   if (device.get()) {
     decoder.reset(new V4L2SliceVideoDecodeAccelerator(
         device, gfx::GLSurfaceEGL::GetHardwareDisplay(), get_gl_context_cb_,
         make_context_current_cb_));
   }
+#endif
   return decoder;
 }
 #endif
