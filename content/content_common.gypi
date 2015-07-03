@@ -747,7 +747,7 @@
         '../third_party/libjingle/libjingle.gyp:libjingle',
       ],
     }],
-    ['target_arch=="arm" and chromeos == 1 and use_x11 == 1', {
+    ['target_arch=="arm" and use_x11 == 1', {
       'dependencies': [
         '../media/media.gyp:media',
       ],
