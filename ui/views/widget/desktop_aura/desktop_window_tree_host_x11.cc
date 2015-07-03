@@ -92,6 +92,7 @@ const char* kAtomsToCache[] = {
   "WM_DELETE_WINDOW",
   "WM_PROTOCOLS",
   "_NET_FRAME_EXTENTS",
+  "_NET_WM_BYPASS_COMPOSITOR",
   "_NET_WM_CM_S0",
   "_NET_WM_DESKTOP",
   "_NET_WM_ICON",
@@ -822,6 +823,15 @@ void DesktopWindowTreeHostX11::SetFullscreen(bool fullscreen) {
   SetWMSpecState(fullscreen,
                  atom_cache_.GetAtom("_NET_WM_STATE_FULLSCREEN"),
                  None);
+  unsigned long value = fullscreen;
+  XChangeProperty(xdisplay_,
+                  xwindow_,
+                  atom_cache_.GetAtom("_NET_WM_BYPASS_COMPOSITOR"),
+                  XA_CARDINAL,
+                  32,
+                  PropModeReplace,
+                  reinterpret_cast<unsigned char*>(&value),
+                  1);
   if (unmaximize_and_remaximize)
     Maximize();
 
