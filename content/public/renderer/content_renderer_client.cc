@@ -5,6 +5,8 @@
 #include "content/public/common/user_agent.h"
 #include "content/public/renderer/content_renderer_client.h"
 
+#include "chrome/common/chrome_version_info_values.h"
+
 #include "third_party/WebKit/public/web/WebPluginPlaceholder.h"
 
 #include "url/gurl.h"
@@ -210,6 +212,23 @@ std::string ContentRendererClient::GetUserAgentOverrideForURL(const GURL& url) {
       size_t pos = user_agent.find("Chrome/");
       if (pos != std::string::npos)
           user_agent.erase(pos, std::string::npos);
+
+      return user_agent;
+  }
+
+  // Whatsapp requires to strip out Chromium and Ubuntu parts
+  if (url.host() == "web.whatsapp.com") {
+      std::string user_agent = content::BuildUserAgentFromProduct("Chrome/" PRODUCT_VERSION);
+      size_t pos = user_agent.find("Chromium/");
+      if (pos != std::string::npos) {
+          size_t pos_blank = user_agent.find(" ", pos);
+          if (pos_blank != std::string::npos)
+              user_agent.erase(pos, pos_blank - pos + 1);
+      }
+
+      pos = user_agent.find("Ubuntu");
+      if (pos != std::string::npos)
+          user_agent.erase(pos, 7);
 
       return user_agent;
   }
