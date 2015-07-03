@@ -341,7 +341,7 @@ GpuMemoryBufferVideoFramePool::MaybeCreateHardwareFrame(
     case VideoFrame::YV12A:
     case VideoFrame::YV16:
     case VideoFrame::YV24:
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case VideoFrame::NV12:
 #endif
     case VideoFrame::ARGB:

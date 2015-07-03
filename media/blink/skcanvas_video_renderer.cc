@@ -618,7 +618,7 @@ void SkCanvasVideoRenderer::ConvertVideoFrameToRGBPixels(
                          video_frame->visible_rect().height());
 #endif
       break;
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case VideoFrame::NV12:
 #endif
     case VideoFrame::ARGB:

@@ -53,7 +53,7 @@ class MEDIA_EXPORT VideoFrame : public base::RefCountedThreadSafe<VideoFrame> {
     YV16 = 3,  // 16bpp YVU planar 1x1 Y, 2x1 VU samples.
     YV12A = 4,  // 20bpp YUVA planar 1x1 Y, 2x2 VU, 1x1 A samples.
     YV24 = 5,  // 24bpp YUV planar, no subsampling.
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     NV12 = 6,  // 12bpp with Y plane followed by a 2x2 interleaved UV plane.
 #endif
     ARGB = 7,  // 32bpp ARGB, 1 plane.

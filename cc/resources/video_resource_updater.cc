@@ -402,7 +402,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
     case media::VideoFrame::I420:
       external_resources.type = VideoFrameExternalResources::YUV_RESOURCE;
       break;
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case media::VideoFrame::NV12:
 #endif
     case media::VideoFrame::YV12:

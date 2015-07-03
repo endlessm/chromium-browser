@@ -74,7 +74,7 @@ static gfx::Size SampleSize(VideoFrame::Format format, size_t plane) {
         case VideoFrame::YV12:
         case VideoFrame::I420:
         case VideoFrame::YV12A:
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
         case VideoFrame::NV12:
 #endif
           return gfx::Size(2, 2);
@@ -108,7 +108,7 @@ static int BytesPerElement(VideoFrame::Format format, size_t plane) {
   if (format == VideoFrame::ARGB || format == VideoFrame::XRGB)
     return 4;
 
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   if (format == VideoFrame::NV12 && plane == VideoFrame::kUVPlane)
     return 2;
 #endif
@@ -143,7 +143,7 @@ std::string VideoFrame::FormatToString(Format format) {
       return "ARGB";
     case XRGB:
       return "XRGB";
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case NV12:
       return "NV12";
 #endif
@@ -160,7 +160,7 @@ bool VideoFrame::IsYuvPlanar(Format format) {
     case YV16:
     case YV12A:
     case YV24:
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case NV12:
 #endif
       return true;
@@ -208,7 +208,7 @@ bool VideoFrame::IsValidConfig(Format format,
     case YV16:
     case ARGB:
     case XRGB:
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case NV12:
 #endif
       // Check that software-allocated buffer formats are aligned correctly and
@@ -521,7 +521,7 @@ size_t VideoFrame::NumPlanes(Format format) {
     case ARGB:
     case XRGB:
       return 1;
-#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
     case NV12:
       return 2;
 #endif
