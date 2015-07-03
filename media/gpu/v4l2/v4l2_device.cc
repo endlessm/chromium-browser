@@ -1218,7 +1218,7 @@ scoped_refptr<V4L2Device> V4L2Device::Create() {
 
   scoped_refptr<V4L2Device> device;
 
-#if defined(ARCH_CPU_ARMEL)
+#if defined(ARCH_CPU_ARMEL) && defined(OS_CHROMEOS)
   device = new TegraV4L2Device();
   if (device->Initialize())
     return device;
