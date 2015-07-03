@@ -1014,6 +1014,16 @@ void DesktopWindowTreeHostX11::SetFullscreen(bool fullscreen) {
     Restore();
   ui::SetWMSpecState(xwindow_, fullscreen,
                      gfx::GetAtom("_NET_WM_STATE_FULLSCREEN"), x11::None);
+  unsigned long value = fullscreen;
+  XChangeProperty(xdisplay_,
+                  xwindow_,
+                  gfx::GetAtom("_NET_WM_BYPASS_COMPOSITOR"),
+                  XA_CARDINAL,
+                  32,
+                  PropModeReplace,
+                  reinterpret_cast<unsigned char*>(&value),
+                  1);
+
   if (unmaximize_and_remaximize)
     Maximize();
 
