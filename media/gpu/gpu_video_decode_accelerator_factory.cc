@@ -97,9 +97,9 @@ GpuVideoDecodeAcceleratorFactory::GetDecoderCapabilities(
   vda_profiles = V4L2VideoDecodeAccelerator::GetSupportedProfiles();
   GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
       vda_profiles, &capabilities.supported_profiles);
-  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
-  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
-      vda_profiles, &capabilities.supported_profiles);
+//  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
+//  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(
+//      vda_profiles, &capabilities.supported_profiles);
 #endif
 #if BUILDFLAG(USE_VAAPI)
   vda_profiles = VaapiVideoDecodeAccelerator::GetSupportedProfiles();
@@ -215,12 +215,14 @@ GpuVideoDecodeAcceleratorFactory::CreateV4L2SVDA(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences) const {
   std::unique_ptr<VideoDecodeAccelerator> decoder;
+#if 0
   scoped_refptr<V4L2Device> device = V4L2Device::Create();
   if (device.get()) {
     decoder.reset(new V4L2SliceVideoDecodeAccelerator(
         device, gl::GLSurfaceEGL::GetHardwareDisplay(), bind_image_cb_,
         make_context_current_cb_));
   }
+#endif
   return decoder;
 }
 #endif
