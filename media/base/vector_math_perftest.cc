@@ -80,7 +80,7 @@ class VectorMathPerfTest : public testing::Test {
 };
 
 // Define platform dependent function names for SIMD optimized methods.
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 #define FMAC_FUNC FMAC_SSE
 #define FMUL_FUNC FMUL_SSE
 #define EWMAAndMaxPower_FUNC EWMAAndMaxPower_SSE

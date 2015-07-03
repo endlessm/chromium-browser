@@ -83,7 +83,7 @@
 
 #include "base/logging.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 #include <xmmintrin.h>
 #define CONVOLVE_FUNC Convolve_SSE
 #elif defined(ARCH_CPU_ARM_FAMILY) && defined(USE_NEON)
@@ -324,7 +324,7 @@ float SincResampler::Convolve_C(const float* input_ptr, const float* k1,
       kernel_interpolation_factor * sum2);
 }
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 float SincResampler::Convolve_SSE(const float* input_ptr, const float* k1,
                                   const float* k2,
                                   double kernel_interpolation_factor) {

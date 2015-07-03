@@ -27,7 +27,7 @@
 #include "media/base/simd/filter_yuv.h"
 #include "media/base/simd/yuv_to_rgb_table.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
 #if defined(COMPILER_MSVC)
 #include <intrin.h>
 #else

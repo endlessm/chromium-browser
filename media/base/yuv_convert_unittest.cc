@@ -886,6 +886,6 @@ TEST(YUVConvertTest, LinearScaleYUVToRGB32Row_MMX_X64) {
 
 #endif  // defined(ARCH_CPU_X86_64)
 
-#endif  // defined(ARCH_CPU_X86_FAMILY)
+#endif  // defined(__x86_64__)
 
 }  // namespace media
