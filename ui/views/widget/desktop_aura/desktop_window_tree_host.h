@@ -80,6 +80,8 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
 
   virtual bool IsVisible() const = 0;
 
+  virtual void SetSessionID(uint32 sessionid) = 0;
+
   virtual void SetSize(const gfx::Size& size) = 0;
   virtual void StackAtTop() = 0;
   virtual void CenterWindow(const gfx::Size& size) = 0;

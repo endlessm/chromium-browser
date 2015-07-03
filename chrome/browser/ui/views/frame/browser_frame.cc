@@ -35,6 +35,7 @@
 #include "ui/gfx/screen.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/widget/native_widget.h"
+#include "ui/views/widget/native_widget_aura.h"
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 #include "chrome/browser/shell_integration_linux.h"
@@ -181,6 +182,12 @@ void BrowserFrame::UpdateThrobber(bool running) {
 
 views::View* BrowserFrame::GetFrameView() const {
   return browser_frame_view_;
+}
+
+void BrowserFrame::SendSessionIdToWindow() {
+  const Browser& browser = *browser_view_->browser();
+  views::NativeWidget* a = native_browser_frame_->AsNativeWidget();
+  a->SetSessionID(browser.session_id().id());
 }
 
 bool BrowserFrame::UseCustomFrame() const {

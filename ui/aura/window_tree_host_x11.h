@@ -41,6 +41,8 @@ class AURA_EXPORT WindowTreeHostX11 : public WindowTreeHost,
   bool CanDispatchEvent(const ui::PlatformEvent& event) override;
   uint32_t DispatchEvent(const ui::PlatformEvent& event) override;
 
+//  void SetSessionID(uint32 s) OVERRIDE;
+
   // WindowTreeHost:
   ui::EventSource* GetEventSource() override;
   gfx::AcceleratedWidget GetAcceleratedWidget() override;

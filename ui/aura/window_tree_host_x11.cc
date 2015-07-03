@@ -485,6 +485,26 @@ gfx::AcceleratedWidget WindowTreeHostX11::GetAcceleratedWidget() {
   return xwindow_;
 }
 
+#if 0
+void WindowTreeHostX11::SetSessionID(uint32 session_id) {
+  VLOG(1) << "BROKEN delete this session writer.";
+
+  if (session_id != 0) {
+    XChangeProperty(xdisplay_,
+                    xwindow_,
+                    atom_cache_.GetAtom("CHROMIUM_LINUX_SESSION_ID_PROPERTY"),
+                    XA_CARDINAL,
+                    32,
+                    PropModeReplace,
+                    reinterpret_cast<unsigned char*>(session_id),
+                    1);
+    VLOG(1) << " DID  set session_id as window property because we have a session " << session_id;
+  } else {
+    VLOG(1) << "can't set session_id as window property because we don't have a session yet.";
+  }
+}
+#endif
+
 void WindowTreeHostX11::Show() {
   if (!window_mapped_) {
     // Before we map the window, set size hints. Otherwise, some window managers

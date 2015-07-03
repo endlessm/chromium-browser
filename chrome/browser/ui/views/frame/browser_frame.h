@@ -86,6 +86,8 @@ class BrowserFrame
   void GetWindowPlacement(gfx::Rect* bounds,
                           ui::WindowShowState* show_state) const;
 
+  void SendSessionIdToWindow();
+
   // Overridden from views::Widget:
   views::internal::RootView* CreateRootView() override;
   views::NonClientFrameView* CreateNonClientFrameView() override;
