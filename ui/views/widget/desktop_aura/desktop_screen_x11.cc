@@ -331,11 +331,13 @@ std::vector<gfx::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
       gfx::Display display(display_id, crtc_bounds);
 
       // An integer that forces discrete steps.
-      int density_indicator = 0;
+      int density_indicator = 8;
 #ifdef USE_GLIB
       if (display_scales != NULL) {
-        (void) g_variant_lookup(display_scales, output_info->name, "i",
-                                &density_indicator);
+        if (! g_variant_lookup(display_scales, output_info->name, "i",
+                                &density_indicator)) {
+          density_indicator = 8;  // default scale is 1
+        }
         DCHECK_LE(0, density_indicator);
         DVLOG(1) << "Got density indictor " << density_indicator << " from display_scales for " << output_info->name;
       }
