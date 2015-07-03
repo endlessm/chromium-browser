@@ -826,7 +826,7 @@ scoped_refptr<V4L2Device> V4L2Device::Create() {
 
   scoped_refptr<V4L2Device> device;
 
-#if defined(ARCH_CPU_ARMEL)
+#if defined(ARCH_CPU_ARMEL) && defined(OS_CHROMEOS)
   device = new TegraV4L2Device();
   if (device->Initialize())
     return device;
@@ -846,9 +846,6 @@ VideoPixelFormat V4L2Device::V4L2PixFmtToVideoPixelFormat(uint32_t pix_fmt) {
     case V4L2_PIX_FMT_NV12:
     case V4L2_PIX_FMT_NV12M:
       return PIXEL_FORMAT_NV12;
-
-    case V4L2_PIX_FMT_MT21:
-      return PIXEL_FORMAT_MT21;
 
     case V4L2_PIX_FMT_YUV420:
     case V4L2_PIX_FMT_YUV420M:
@@ -874,9 +871,6 @@ uint32_t V4L2Device::VideoPixelFormatToV4L2PixFmt(VideoPixelFormat format) {
   switch (format) {
     case PIXEL_FORMAT_NV12:
       return V4L2_PIX_FMT_NV12M;
-
-    case PIXEL_FORMAT_MT21:
-      return V4L2_PIX_FMT_MT21;
 
     case PIXEL_FORMAT_I420:
       return V4L2_PIX_FMT_YUV420M;
