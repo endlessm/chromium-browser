@@ -233,6 +233,19 @@ std::string ContentRendererClient::GetUserAgentOverrideForURL(const GURL& url) {
       return user_agent;
   }
 
+  // Google Calendar requires replace "arm" by "i686" version in order to use
+  // the standard place and not the mobile one
+  if (url.host() == "calendar.google.com") {
+      std::string user_agent = content::BuildUserAgentFromProduct("Chrome/" PRODUCT_VERSION);
+      size_t pos = user_agent.find("arm");
+      if (pos != std::string::npos) {
+          size_t pos_blank = user_agent.find(")", pos);
+          if (pos_blank != std::string::npos)
+              user_agent.replace(pos, pos_blank - pos, "i686");
+      }
+
+      return user_agent;
+  }
   return std::string();
 }
 
