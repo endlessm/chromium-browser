@@ -5492,6 +5492,8 @@ class V8_EXPORT V8 {
    */
   static void InitializePlatform(Platform* platform);
 
+  static Platform* GetCurrentPlatform();
+
   /**
    * Clears all references to the v8::Platform. This should be invoked after
    * V8 was disposed.

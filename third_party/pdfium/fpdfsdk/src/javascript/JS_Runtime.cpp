@@ -38,9 +38,14 @@ IFXJS_Runtime*					CJS_RuntimeFactory::NewJSRuntime(CPDFDoc_Environment* pApp)
 	if (!m_bInit)
 	{
 		JS_Initial();
-                m_platform = v8::platform::CreateDefaultPlatform();
-                v8::V8::InitializePlatform(m_platform);
-                v8::V8::Initialize();
+                m_platform = v8::V8::GetCurrentPlatform();
+                if (!m_platform)
+                {
+                        m_platform = v8::platform::CreateDefaultPlatform();
+                        v8::V8::InitializePlatform(m_platform);
+                        v8::V8::Initialize();
+                        m_bShutdownPlatform = TRUE;
+                }
 		
 		m_bInit = TRUE;
 	}
@@ -60,8 +65,12 @@ void							CJS_RuntimeFactory::Release()
 		{
 			JS_Release();
 			ReleaseGlobalData();
-                        v8::V8::ShutdownPlatform();
-                        delete m_platform;
+                        if (m_bShutdownPlatform)
+                        {
+                                v8::V8::ShutdownPlatform();
+                                delete m_platform;
+                                m_bShutdownPlatform = FALSE;
+                        }
                         m_platform = NULL;
 			m_bInit = FALSE;
 		}

@@ -113,7 +113,6 @@ void V8::ShutdownPlatform() {
 
 
 v8::Platform* V8::GetCurrentPlatform() {
-  DCHECK(platform_);
   return platform_;
 }
 

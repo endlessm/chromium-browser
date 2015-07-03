@@ -5148,6 +5148,11 @@ void v8::V8::InitializePlatform(Platform* platform) {
 }
 
 
+Platform* v8::V8::GetCurrentPlatform() {
+  return i::V8::GetCurrentPlatform();
+}
+
+
 void v8::V8::ShutdownPlatform() {
   i::V8::ShutdownPlatform();
 }

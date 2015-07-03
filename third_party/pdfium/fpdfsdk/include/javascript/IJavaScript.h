@@ -96,7 +96,7 @@ class CJS_GlobalData;
 class CJS_RuntimeFactory
 {
 public:
-	CJS_RuntimeFactory():m_bInit(FALSE),m_nRef(0),m_pGlobalData(NULL),m_nGlobalDataCount(0),m_platform(NULL) {}
+	CJS_RuntimeFactory():m_bInit(FALSE),m_bShutdownPlatform(FALSE),m_nRef(0),m_pGlobalData(NULL),m_nGlobalDataCount(0),m_platform(NULL) {}
 	~CJS_RuntimeFactory();
 	IFXJS_Runtime*					NewJSRuntime(CPDFDoc_Environment* pApp);
 	void							DeleteJSRuntime(IFXJS_Runtime* pRuntime);
@@ -107,6 +107,7 @@ public:
 	void							ReleaseGlobalData();
 private:
 	FX_BOOL m_bInit;
+	FX_BOOL m_bShutdownPlatform;
 	int m_nRef;
 	CJS_GlobalData*					m_pGlobalData;
 	FX_INT32						m_nGlobalDataCount;
