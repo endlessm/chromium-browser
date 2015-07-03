@@ -801,6 +801,10 @@ void DesktopWindowTreeHostX11::SetFullscreen(bool fullscreen) {
 
   x11_window_->SetFullscreen(fullscreen);
 
+  unsigned long value = fullscreen;
+
+  x11_window_->SetBypassCompositor(value);
+
   if (unmaximize_and_remaximize)
     Maximize();
 
