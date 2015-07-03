@@ -2,9 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/public/common/user_agent.h"
 #include "content/public/renderer/content_renderer_client.h"
 
 #include "third_party/WebKit/public/web/WebPluginPlaceholder.h"
+
+#include "url/gurl.h"
 
 namespace content {
 
@@ -199,6 +202,18 @@ BrowserPluginDelegate* ContentRendererClient::CreateBrowserPluginDelegate(
 }
 
 std::string ContentRendererClient::GetUserAgentOverrideForURL(const GURL& url) {
+  // Due an issue with Chromium (not Chrome) and Google Hangout plugin, we need
+  // to change the user agent so Sharing Desktop feature works.
+  // Remove Chrome and Safari (but okay to leave Chromium intact).
+  if (url.host() == "plus.google.com") {
+      std::string user_agent = content::BuildUserAgentFromProduct("Chrome/" PRODUCT_VERSION);
+      size_t pos = user_agent.find("Chrome/");
+      if (pos != std::string::npos)
+          user_agent.erase(pos, std::string::npos);
+
+      return user_agent;
+  }
+
   return std::string();
 }
 
