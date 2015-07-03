@@ -218,6 +218,8 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
       IDS_OPTIONS_ADVANCED_SECTION_TITLE_CERTIFICATES },
     { "advancedSectionTitleContent",
       IDS_OPTIONS_ADVANCED_SECTION_TITLE_CONTENT },
+    { "advancedSectionTitleIntegration",
+      IDS_OPTIONS_ADVANCED_SECTION_TITLE_INTEGRATION },
     { "advancedSectionTitleLanguages",
       IDS_OPTIONS_ADVANCED_SECTION_TITLE_LANGUAGES },
     { "advancedSectionTitleNetwork",
@@ -235,6 +237,10 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "defaultFontSizeLabel", IDS_OPTIONS_DEFAULT_FONT_SIZE_LABEL },
     { "defaultSearchManageEngines", IDS_OPTIONS_DEFAULTSEARCH_MANAGE_ENGINES },
     { "defaultZoomFactorLabel", IDS_OPTIONS_DEFAULT_ZOOM_LEVEL_LABEL },
+    { "desktopIntegrationExceptionsSettingsButton",
+      IDS_DESKTOP_INTEGRATION_SETTINGS_EXCEPTIONS_BUTTON_LABEL },
+    { "desktopIntegrationNoteSettingsContent",
+      IDS_DESKTOP_INTEGRATION_NOTE_DESCRIPTION },
 #if defined(OS_CHROMEOS)
     { "disableGData", IDS_OPTIONS_DISABLE_GDATA },
 #endif
@@ -316,6 +322,8 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "profilesManage", IDS_PROFILES_MANAGE_BUTTON_LABEL },
     { "profilesSupervisedDashboardTip",
       IDS_PROFILES_SUPERVISED_USER_DASHBOARD_TIP },
+    { "promptIntegrationEnableIntegration",
+      IDS_PROMPT_INTEGRATION_ENABLE_BUTTON_LABEL },
 #if defined(ENABLE_SETTINGS_APP)
     { "profilesAppListSwitch", IDS_SETTINGS_APP_PROFILES_SWITCH_BUTTON_LABEL },
 #endif
