@@ -191,7 +191,7 @@ std::vector<base::ScopedFD> GenericV4L2Device::GetDmabufsForV4L2Buffer(
     expbuf.type = type;
     expbuf.index = index;
     expbuf.plane = i;
-    expbuf.flags = O_CLOEXEC;
+    expbuf.flags = O_CLOEXEC | O_RDONLY;
     if (Ioctl(VIDIOC_EXPBUF, &expbuf) != 0) {
       dmabuf_fds.clear();
       break;
