@@ -40,6 +40,3 @@ def add_depot_tools_to_path():
   return None
 
 add_depot_tools_to_path()
-
-# pylint: disable=W0611
-import breakpad
