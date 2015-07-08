@@ -7,6 +7,7 @@ Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/xenial-stabl
 Homepage: https://chromium.googlesource.com/chromium/src/
 Build-Depends:
 	debhelper (>= 9),
+	eos-shell-content-dev,
 	dh-buildinfo,
 	ninja-build (>= 1.3),
 	pkg-config,
