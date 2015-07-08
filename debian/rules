@@ -171,7 +171,7 @@ endif
 
 # Debian Policy §4.9
 binary binary-arch binary-indep build build-arch build-indep clean install install-arch install-indep patch:
-	dh $@ --builddirectory=out --with quilt
+	dh $@ --builddirectory=out --with quilt,eoscontent
 
 # BZR build-deb rule
 get-packaged-orig-source: URL=https://commondatastorage.googleapis.com/chromium-browser-official/chromium-$(ORIG_VERSION).tar.xz
