@@ -147,9 +147,9 @@ V4L2VideoDecodeAccelerator::V4L2VideoDecodeAccelerator(
       decoder_state_(kUninitialized),
       output_mode_(Config::OutputMode::ALLOCATE),
       device_(device),
-      decoder_delay_bitstream_buffer_id_(-1),
       decoder_decode_buffer_tasks_scheduled_(0),
       decoder_flushing_(false),
+      decoder_flushed_(false),
       decoder_cmd_supported_(false),
       flush_awaiting_last_output_buffer_(false),
       reset_pending_(false),
@@ -848,15 +848,7 @@ void V4L2VideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
   if (!bitstream_record->buffer)
     return;
 
-  if (decoder_state_ == kResetting || decoder_flushing_) {
-    // In the case that we're resetting or flushing, we need to delay decoding
-    // the BitstreamBuffers that come after the Reset() or Flush() call.  When
-    // we're here, we know that this DecodeTask() was scheduled by a Decode()
-    // call that came after (in the client thread) the Reset() or Flush() call;
-    // thus set up the delay if necessary.
-    if (decoder_delay_bitstream_buffer_id_ == -1)
-      decoder_delay_bitstream_buffer_id_ = bitstream_record->input_id;
-  } else if (decoder_state_ == kError) {
+  if (decoder_state_ == kError) {
     VLOGF(2) << "early out: kError state";
     return;
   }
@@ -887,8 +879,7 @@ void V4L2VideoDecodeAccelerator::DecodeBufferTask() {
       // We're waiting for a new buffer -- exit without scheduling a new task.
       return;
     }
-    if (decoder_delay_bitstream_buffer_id_ ==
-        decoder_input_queue_.front()->input_id) {
+    if (decoder_flushed_) {
       // We're asked to delay decoding on this and subsequent buffers.
       return;
     }
@@ -1696,6 +1687,7 @@ void V4L2VideoDecodeAccelerator::FlushTask() {
   decoder_input_queue_.push_back(std::make_unique<BitstreamBufferRef>(
       decode_client_, decode_task_runner_, nullptr, kFlushBufferId));
   decoder_flushing_ = true;
+  decoder_flushed_ = false;
   SendPictureReady();  // Send all pending PictureReady.
 
   ScheduleDecodeBufferTaskIfNeeded();
@@ -1704,28 +1696,11 @@ void V4L2VideoDecodeAccelerator::FlushTask() {
 void V4L2VideoDecodeAccelerator::NotifyFlushDoneIfNeeded() {
   DCHECK(decoder_thread_.task_runner()->BelongsToCurrentThread());
   DCHECK(input_queue_);
-  if (!decoder_flushing_)
+  if (!decoder_flushing_ || !decoder_flushed_)
     return;
 
-  // Pipeline is empty when:
-  // * Decoder input queue is empty of non-delayed buffers.
-  // * There is no currently filling input buffer.
-  // * Input holding queue is empty.
-  // * All input (VIDEO_OUTPUT) buffers are returned.
-  // * All image processor buffers are returned.
-  if (!decoder_input_queue_.empty()) {
-    if (decoder_input_queue_.front()->input_id !=
-        decoder_delay_bitstream_buffer_id_) {
-      DVLOGF(3) << "Some input bitstream buffers are not queued.";
-      return;
-    }
-  }
   if (current_input_buffer_.IsValid()) {
     DVLOGF(3) << "Current input buffer != -1";
-    return;
-  }
-  if ((input_ready_queue_.size() + input_queue_->QueuedBuffersCount()) != 0) {
-    DVLOGF(3) << "Some input buffers are not dequeued.";
     return;
   }
   if (!buffers_at_ip_.empty()) {
@@ -1759,7 +1734,7 @@ void V4L2VideoDecodeAccelerator::NotifyFlushDoneIfNeeded() {
 
 void V4L2VideoDecodeAccelerator::NofityFlushDone() {
   TRACE_EVENT_ASYNC_END0("media,gpu", "V4L2VDA::FlushTask", this);
-  decoder_delay_bitstream_buffer_id_ = -1;
+  decoder_flushed_ = false;
   decoder_flushing_ = false;
   VLOGF(2) << "returning flush";
   child_task_runner_->PostTask(
@@ -1901,7 +1876,6 @@ void V4L2VideoDecodeAccelerator::ResetDoneTask() {
   decoder_state_ = kInitialized;
 
   decoder_partial_frame_pending_ = false;
-  decoder_delay_bitstream_buffer_id_ = -1;
   child_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&Client::NotifyResetDone, client_));
 
