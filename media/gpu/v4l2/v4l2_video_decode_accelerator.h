@@ -451,10 +451,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   std::unique_ptr<BitstreamBufferRef> decoder_current_bitstream_buffer_;
   // The V4L2Device this class is operating upon.
   scoped_refptr<V4L2Device> device_;
-  // FlushTask() and ResetTask() should not affect buffers that have been
-  // queued afterwards.  For flushing or resetting the pipeline then, we will
-  // delay these buffers until after the flush or reset completes.
-  int decoder_delay_bitstream_buffer_id_;
   // Input buffer we're presently filling.
   int decoder_current_input_buffer_;
   // We track the number of buffer decode tasks we have scheduled, since each
@@ -464,8 +460,10 @@ class MEDIA_GPU_EXPORT V4L2VideoDecodeAccelerator
   // Picture buffers held by the client.
   int decoder_frames_at_client_;
 
-  // Are we flushing?
+  // Are we flushing? (misleading name to say we are draining)
   bool decoder_flushing_;
+  // Are we flushed? (drained)
+  bool decoder_flushed_;
   // True if VIDIOC_DECODER_CMD is supported.
   bool decoder_cmd_supported_;
   // True if flushing is waiting for last output buffer. After
