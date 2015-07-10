@@ -459,14 +459,6 @@ void GpuVideoDecoder::RecordBufferData(const BitstreamBuffer& bitstream_buffer,
                                            buffer.timestamp(),
                                            config_.visible_rect(),
                                            config_.natural_size()));
-  // Why this value?  Because why not.  avformat.h:MAX_REORDER_DELAY is 16, but
-  // that's too small for some pathological B-frame test videos.  The cost of
-  // using too-high a value is low (192 bits per extra slot).
-  static const size_t kMaxInputBufferDataSize = 128;
-  // Pop from the back of the list, because that's the oldest and least likely
-  // to be useful in the future data.
-  if (input_buffer_data_.size() > kMaxInputBufferDataSize)
-    input_buffer_data_.pop_back();
 }
 
 void GpuVideoDecoder::GetBufferData(int32_t id,
@@ -484,6 +476,38 @@ void GpuVideoDecoder::GetBufferData(int32_t id,
     return;
   }
   NOTREACHED() << "Missing bitstreambuffer id: " << id;
+}
+
+void GpuVideoDecoder::RemoveBufferData(int32_t id) {
+  base::TimeDelta timestamp;
+  bool found = false;
+
+  for (std::list<BufferData>::iterator it =
+           input_buffer_data_.begin(); it != input_buffer_data_.end();
+       ++it) {
+    if (it->bitstream_buffer_id != id)
+      continue;
+    DVLOG(3) << "Removing data for id: " << id;
+    timestamp = it->timestamp;
+    input_buffer_data_.erase(it);
+    break;
+  }
+
+  if (!found) {
+      NOTREACHED() << "Missing bitstreambuffer id: " << id;
+      return;
+  }
+
+  /* Remove anything older too to prevent the list from growing */
+  for (std::list<BufferData>::iterator it =
+           input_buffer_data_.begin(); it != input_buffer_data_.end();
+       ++it) {
+    if (it->timestamp < timestamp) {
+        DVLOG(3) << "Also removing data for id: " << it->bitstream_buffer_id;
+        input_buffer_data_.erase(it);
+    }
+    break;
+  }
 }
 
 bool GpuVideoDecoder::NeedsBitstreamConversion() const {
@@ -670,6 +694,7 @@ void GpuVideoDecoder::PictureReady(const media::Picture& picture) {
   DCHECK(inserted);
 
   DeliverFrame(frame);
+  RemoveBufferData(picture.bitstream_buffer_id());
 }
 
 void GpuVideoDecoder::DeliverFrame(
