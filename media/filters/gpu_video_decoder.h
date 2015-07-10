@@ -128,6 +128,7 @@ class MEDIA_EXPORT GpuVideoDecoder
                      base::TimeDelta* timetamp,
                      gfx::Rect* visible_rect,
                      gfx::Size* natural_size);
+  void RemoveBufferData(int32_t id);
 
   void DestroyVDA();
 
