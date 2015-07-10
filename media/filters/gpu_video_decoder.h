@@ -112,6 +112,7 @@ class MEDIA_EXPORT GpuVideoDecoder
       const BitstreamBuffer& bitstream_buffer, const DecoderBuffer& buffer);
   void GetBufferData(int32 id, base::TimeDelta* timetamp,
                      gfx::Rect* visible_rect, gfx::Size* natural_size);
+  void RemoveBufferData(int32 id);
 
   void DestroyVDA();
 
