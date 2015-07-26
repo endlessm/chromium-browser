@@ -2,7 +2,7 @@
 
 DEBIAN_NAME		:= $(shell dpkg-parsechangelog | sed -n 's/^Source: *\(.*\)$$/\1/ p')
 DEBIAN_VERSION		:= $(shell dpkg-parsechangelog | sed -n 's/^Version: *\(.*\)$$/\1/ p')
-DEBIAN_VERSION_BASE	:= $(shell echo $(DEBIAN_VERSION) | sed 's/^\(.*\)+[^-]*$$/\1/')
+DEBIAN_VERSION_BASE	:= $(shell echo $(DEBIAN_VERSION) | sed 's/^\([^-+]*\)[-+].*$$/\1/')
 DEBIAN_UPSTREAM_VERSION	:= $(shell echo $(DEBIAN_VERSION) | sed 's/^\(.*\)-[^-]*$$/\1/')
 DEBIAN_REVISION		:= $(shell echo $(DEBIAN_VERSION) | sed 's/^.*r\([^-]*\)-.*/\1/')
 DEBIAN_DIST		:= $(shell lsb_release -ds | tr -d '()' |sed -e 's/\#/ /g')
