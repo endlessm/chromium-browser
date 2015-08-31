@@ -241,6 +241,10 @@ EGLImageKHR GenericV4L2Device::CreateEGLImage(
   attrs.push_back(size.height());
   attrs.push_back(EGL_LINUX_DRM_FOURCC_EXT);
   attrs.push_back(V4L2PixFmtToDrmFormat(v4l2_pixfmt));
+  attrs.push_back(EGL_YUV_COLOR_SPACE_HINT_EXT);
+  attrs.push_back(EGL_ITU_REC709_EXT);
+  attrs.push_back(EGL_SAMPLE_RANGE_HINT_EXT);
+  attrs.push_back(EGL_YUV_NARROW_RANGE_EXT);
 
   // For existing formats, if we have less buffers (V4L2 planes) than
   // components (planes), the remaining planes are stored in the last
