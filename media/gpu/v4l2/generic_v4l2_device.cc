@@ -239,6 +239,10 @@ EGLImageKHR GenericV4L2Device::CreateEGLImage(
   attrs.push_back(size.height());
   attrs.push_back(EGL_LINUX_DRM_FOURCC_EXT);
   attrs.push_back(V4L2PixFmtToDrmFormat(fourcc.ToV4L2PixFmt()));
+  attrs.push_back(EGL_YUV_COLOR_SPACE_HINT_EXT);
+  attrs.push_back(EGL_ITU_REC709_EXT);
+  attrs.push_back(EGL_SAMPLE_RANGE_HINT_EXT);
+  attrs.push_back(EGL_YUV_NARROW_RANGE_EXT);
 
   for (size_t plane = 0; plane < num_planes; ++plane) {
     attrs.push_back(EGL_DMA_BUF_PLANE0_FD_EXT + plane * 3);
