@@ -165,7 +165,10 @@ EGLImageKHR ExynosV4L2Device::CreateEGLImage(EGLDisplay egl_display,
       EGL_LINUX_DRM_FOURCC_EXT,      0, EGL_DMA_BUF_PLANE0_FD_EXT,     0,
       EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0, EGL_DMA_BUF_PLANE0_PITCH_EXT,  0,
       EGL_DMA_BUF_PLANE1_FD_EXT,     0, EGL_DMA_BUF_PLANE1_OFFSET_EXT, 0,
-      EGL_DMA_BUF_PLANE1_PITCH_EXT,  0, EGL_NONE, };
+      EGL_DMA_BUF_PLANE1_PITCH_EXT,  0,
+      EGL_YUV_COLOR_SPACE_HINT_EXT,  EGL_ITU_REC709_EXT,
+      EGL_SAMPLE_RANGE_HINT_EXT,     EGL_YUV_NARROW_RANGE_EXT,
+      EGL_NONE, };
   attrs[1] = frame_buffer_size.width();
   attrs[3] = frame_buffer_size.height();
   attrs[5] = DRM_FORMAT_NV12;
