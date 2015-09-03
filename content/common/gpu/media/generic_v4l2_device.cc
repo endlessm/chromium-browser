@@ -191,6 +191,7 @@ EGLImageKHR GenericV4L2Device::CreateEGLImage(EGLDisplay egl_display,
                                               EGLContext /* egl_context */,
                                               GLuint texture_id,
                                               gfx::Size frame_buffer_size,
+                                              int *v4l2_plane_stride,
                                               unsigned int buffer_index,
                                               uint32_t v4l2_pixfmt,
                                               size_t num_v4l2_planes) {
@@ -254,8 +255,7 @@ EGLImageKHR GenericV4L2Device::CreateEGLImage(EGLDisplay egl_display,
     attrs.push_back(EGL_DMA_BUF_PLANE0_OFFSET_EXT + plane * 3);
     attrs.push_back(plane_offset);
     attrs.push_back(EGL_DMA_BUF_PLANE0_PITCH_EXT + plane * 3);
-    attrs.push_back(media::VideoFrame::RowBytes(plane, vf_format,
-                    frame_buffer_size.width()));
+    attrs.push_back(v4l2_plane_stride[v4l2_plane]);
 
     if (v4l2_plane + 1 < num_v4l2_planes) {
       ++v4l2_plane;
