@@ -38,6 +38,7 @@ class GenericV4L2Device : public V4L2Device {
                              EGLContext egl_context,
                              GLuint texture_id,
                              gfx::Size frame_buffer_size,
+                             int *v4l2_plane_stride,
                              unsigned int buffer_index,
                              uint32_t v4l2_pixfmt,
                              size_t num_v4l2_planes) override;
