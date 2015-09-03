@@ -115,6 +115,7 @@ class MEDIA_GPU_EXPORT V4L2Device
       EGLContext egl_context,
       GLuint texture_id,
       const gfx::Size& size,
+      int* v4l2_plane_stride,
       unsigned int buffer_index,
       uint32_t v4l2_pixfmt,
       const std::vector<base::ScopedFD>& dmabuf_fds) = 0;
