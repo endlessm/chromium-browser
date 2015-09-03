@@ -167,6 +167,7 @@ V4L2VideoDecodeAccelerator::V4L2VideoDecodeAccelerator(
       output_dpb_size_(0),
       output_planes_count_(0),
       picture_clearing_count_(0),
+      plane_stride_(nullptr),
       device_poll_thread_("V4L2DevicePollThread"),
       egl_display_(egl_display),
       get_gl_context_cb_(get_gl_context_cb),
@@ -189,6 +190,8 @@ V4L2VideoDecodeAccelerator::~V4L2VideoDecodeAccelerator() {
   // descriptors, mmap() segments, etc.
   DCHECK(input_buffer_map_.empty());
   DCHECK(output_buffer_map_.empty());
+
+  delete [] plane_stride_;
 }
 
 bool V4L2VideoDecodeAccelerator::Initialize(const Config& config,
@@ -469,7 +472,7 @@ void V4L2VideoDecodeAccelerator::CreateEGLImageFor(
   gl::ScopedTextureBinder bind_restore(GL_TEXTURE_EXTERNAL_OES, 0);
 
   EGLImageKHR egl_image = egl_image_device_->CreateEGLImage(
-      egl_display_, gl_context->GetHandle(), texture_id, size, buffer_index,
+      egl_display_, gl_context->GetHandle(), texture_id, size, plane_stride_, buffer_index,
       fourcc, dmabuf_fds);
   if (egl_image == EGL_NO_IMAGE_KHR) {
     VLOGF(1) << "could not create EGLImageKHR,"
@@ -2063,6 +2066,12 @@ bool V4L2VideoDecodeAccelerator::CreateBuffersForFormat(
   output_planes_count_ = format.fmt.pix_mp.num_planes;
   coded_size_.SetSize(format.fmt.pix_mp.width, format.fmt.pix_mp.height);
   visible_size_ = visible_size;
+
+  delete [] plane_stride_;
+  plane_stride_ = new int[output_planes_count_];
+  for (size_t i = 0; i < output_planes_count_; i++)
+    plane_stride_[i] = format.fmt.pix_mp.plane_fmt[i].bytesperline;
+
   if (image_processor_device_) {
     egl_image_size_ = visible_size_;
     egl_image_planes_count_ = 0;
