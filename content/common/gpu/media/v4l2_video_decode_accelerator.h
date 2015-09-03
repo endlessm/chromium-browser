@@ -425,6 +425,9 @@ class CONTENT_EXPORT V4L2VideoDecodeAccelerator
   // Output picture visible size.
   gfx::Size visible_size_;
 
+  // Output buffer strides (per-plane)
+  int *plane_stride_;
+
   //
   // The device polling thread handles notifications of V4L2 device changes.
   //
