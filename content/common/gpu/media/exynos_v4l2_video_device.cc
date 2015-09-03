@@ -141,6 +141,7 @@ EGLImageKHR ExynosV4L2Device::CreateEGLImage(EGLDisplay egl_display,
                                              EGLContext /* egl_context */,
                                              GLuint texture_id,
                                              gfx::Size frame_buffer_size,
+                                             int *plane_stride,
                                              unsigned int buffer_index,
                                              size_t planes_count) {
   DVLOG(3) << "CreateEGLImage()";
@@ -174,10 +175,10 @@ EGLImageKHR ExynosV4L2Device::CreateEGLImage(EGLDisplay egl_display,
   attrs[5] = DRM_FORMAT_NV12;
   attrs[7] = dmabuf_fds[0].get();
   attrs[9] = 0;
-  attrs[11] = frame_buffer_size.width();
+  attrs[11] = plane_stride[0];
   attrs[13] = dmabuf_fds[1].get();
   attrs[15] = 0;
-  attrs[17] = frame_buffer_size.width();
+  attrs[17] = plane_stride[1];
 
   EGLImageKHR egl_image = eglCreateImageKHR(
       egl_display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attrs);

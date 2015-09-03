@@ -80,6 +80,7 @@ class V4L2Device {
                                      EGLContext egl_context,
                                      GLuint texture_id,
                                      gfx::Size frame_buffer_size,
+                                     int *plane_size,
                                      unsigned int buffer_index,
                                      size_t planes_count) = 0;
 
