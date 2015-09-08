@@ -33,6 +33,7 @@ class ExynosV4L2Device : public V4L2Device {
                                      EGLContext egl_context,
                                      GLuint texture_id,
                                      gfx::Size frame_buffer_size,
+                                     int *plane_stride,
                                      unsigned int buffer_index,
                                      size_t planes_count) override;
   virtual EGLBoolean DestroyEGLImage(EGLDisplay egl_display,

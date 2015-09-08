@@ -183,6 +183,7 @@ V4L2VideoDecodeAccelerator::V4L2VideoDecodeAccelerator(
       output_planes_count_(0),
       picture_clearing_count_(0),
       pictures_assigned_(false, false),
+      plane_stride_(NULL),
       device_poll_thread_("V4L2DevicePollThread"),
       make_context_current_(make_context_current),
       egl_display_(egl_display),
@@ -203,6 +204,8 @@ V4L2VideoDecodeAccelerator::~V4L2VideoDecodeAccelerator() {
   // descriptors, mmap() segments, etc.
   DCHECK(input_buffer_map_.empty());
   DCHECK(output_buffer_map_.empty());
+
+  delete [] plane_stride_;
 }
 
 bool V4L2VideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
@@ -363,6 +366,7 @@ void V4L2VideoDecodeAccelerator::AssignPictureBuffers(
                                                     egl_context_,
                                                     buffers[i].texture_id(),
                                                     frame_buffer_size_,
+                                                    plane_stride_,
                                                     i,
                                                     output_planes_count_);
     if (egl_image == EGL_NO_IMAGE_KHR) {
@@ -1628,6 +1632,10 @@ bool V4L2VideoDecodeAccelerator::CreateBuffersForFormat(
   output_planes_count_ = format.fmt.pix_mp.num_planes;
   frame_buffer_size_.SetSize(
       format.fmt.pix_mp.width, format.fmt.pix_mp.height);
+  delete [] plane_stride_;
+  plane_stride_ = new int[output_planes_count_];
+  for (size_t i = 0; i < output_planes_count_; i++)
+    plane_stride_[i] = format.fmt.pix_mp.plane_fmt[i].bytesperline;
   DVLOG(3) << "CreateBuffersForFormat(): new resolution: "
            << frame_buffer_size_.ToString();
 

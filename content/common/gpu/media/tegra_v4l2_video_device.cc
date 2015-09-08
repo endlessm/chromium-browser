@@ -174,6 +174,7 @@ EGLImageKHR TegraV4L2Device::CreateEGLImage(EGLDisplay egl_display,
                                             EGLContext egl_context,
                                             GLuint texture_id,
                                             gfx::Size /* frame_buffer_size */,
+                                            int * /* plane_stride */,
                                             unsigned int buffer_index,
                                             size_t /* planes_count */) {
   DVLOG(3) << "CreateEGLImage()";
