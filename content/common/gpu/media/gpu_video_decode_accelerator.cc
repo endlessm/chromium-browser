@@ -309,6 +309,7 @@ void GpuVideoDecodeAccelerator::Initialize(
 
   if (!video_decode_accelerator_->Initialize(profile, this)) {
     SendCreateDecoderReply(init_done_msg, false);
+    OnDestroy();
     return;
   }
 
