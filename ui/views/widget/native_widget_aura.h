@@ -48,6 +48,8 @@ class VIEWS_EXPORT NativeWidgetAura
       internal::NativeWidgetPrivate* native_widget,
       aura::Window* window);
 
+  virtual void SetSessionID(uint32 sessionid) override;
+
   // Overridden from internal::NativeWidgetPrivate:
   void InitNativeWidget(const Widget::InitParams& params) override;
   NonClientFrameView* CreateNonClientFrameView() override;
