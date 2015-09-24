@@ -113,7 +113,10 @@ void TouchFactory::UpdateDeviceList(Display* display) {
           if (tci->mode == XIDirectTouch) {
             touch_device_lookup_[devinfo.deviceid] = true;
             touch_device_list_[devinfo.deviceid] = true;
-          }
+            VLOG(1) << "addding master device " << devinfo.deviceid << ", it has mode " << tci->mode;
+          } else {
+            VLOG(1) << "ignoring master device " << devinfo.deviceid << " because it has mode " << tci->mode;
+	  }
         }
       }
       pointer_device_lookup_[devinfo.deviceid] = true;
@@ -316,8 +319,12 @@ void TouchFactory::CacheTouchscreenIds(int device_id) {
                      return touchscreen.id == device_id;
                    });
   // Internal displays will have a vid and pid of 0. Ignore them.
-  if (it != touchscreens.end() && it->vendor_id && it->product_id)
+  if (it != touchscreens.end() && it->vendor_id && it->product_id) {
     touchscreen_ids_.insert(std::make_pair(it->vendor_id, it->product_id));
+    VLOG(1) << "adding device id " << device_id << " to touchscreen list";
+  } else {
+    VLOG(1) << "NOT adding device id " << device_id << " to touchscreen list because it as a vid or pid zero";
+  }
 }
 
 }  // namespace ui
