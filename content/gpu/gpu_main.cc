@@ -73,7 +73,7 @@
 #include <sanitizer/coverage_interface.h>
 #endif
 
-const int kGpuTimeout = 10000;
+const int kGpuTimeout = 20000;
 
 namespace content {
 
