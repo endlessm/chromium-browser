@@ -608,6 +608,23 @@ cr.define('options', function() {
             [String(event.target.options[event.target.selectedIndex].value)]);
       };
 
+      // Desktop integration section.
+      if (cr.isLinux) {
+        var updateButtonState = function () {
+          $('desktop-integration-button').disabled =
+            ! $('promptIntegrationForAnyWebsite').checked;
+        };
+        $('promptIntegrationForAnyWebsite').onchange = function () {
+          updateButtonState();
+          chrome.send('setDesktopIntegrationAllowed',
+                      [$('promptIntegrationForAnyWebsite').checked]);
+        };
+        updateButtonState();
+        $('desktop-integration-button').onclick = function(event) {
+          PageManager.showPageByName('desktopIntegrationOverlay')
+        };
+      }
+
       // Languages section.
       var showLanguageOptions = function(event) {
         PageManager.showPageByName('languages');
@@ -1713,6 +1730,24 @@ cr.define('options', function() {
     },
 
     /**
+     * Disable the desktop integration settings if needed.
+     * @private
+     */
+    disableDesktopIntegration_: function() {
+      $('desktop-integration-section').style.display = 'none';
+    },
+
+    /**
+     * Disable the desktop integration settings if needed.
+     * @private
+     */
+    setDesktopIntegrationIsAllowed_: function(enabled) {
+      $('promptIntegrationForAnyWebsite').checked = enabled;
+      $('desktop-integration-button').disabled =
+        ! $('promptIntegrationForAnyWebsite').checked;
+    },
+
+    /**
      * Set the checked state of the metrics reporting checkbox.
      * @private
      */
@@ -2139,6 +2174,7 @@ cr.define('options', function() {
   cr.makePublic(BrowserOptions, [
     'addBluetoothDevice',
     'deleteCurrentProfile',
+    'disableDesktopIntegration',
     'enableCertificateButton',
     'enableDisplaySettings',
     'enableFactoryResetSection',
@@ -2153,6 +2189,7 @@ cr.define('options', function() {
     'setAutoOpenFileTypesDisplayed',
     'setBluetoothState',
     'setCanSetTime',
+    'setDesktopIntegrationIsAllowed',
     'setFontSize',
     'setHotwordRetrainLinkVisible',
     'setNativeThemeButtonEnabled',

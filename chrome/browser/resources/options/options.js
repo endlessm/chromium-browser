@@ -15,6 +15,8 @@ var ContentSettingsExceptionsArea =
     options.contentSettings.ContentSettingsExceptionsArea;
 var ContentSettings = options.ContentSettings;
 var CookiesView = options.CookiesView;
+var DesktopIntegrationOverlay = options.DesktopIntegrationOverlay;
+var AddDesktopIntegrationWebsiteOverlay = options.AddDesktopIntegrationWebsiteOverlay;
 var CreateProfileOverlay = options.CreateProfileOverlay;
 var EditDictionaryOverlay = cr.IsMac ? null : options.EditDictionaryOverlay;
 var EasyUnlockTurnOffOverlay = options.EasyUnlockTurnOffOverlay;
@@ -129,6 +131,17 @@ function load() {
   PageManager.registerOverlay(FontSettings.getInstance(),
                               BrowserOptions.getInstance(),
                               [$('fontSettingsCustomizeFontsButton')]);
+  if (cr.isLinux) {
+   try {
+    PageManager.registerOverlay(AddDesktopIntegrationWebsiteOverlay.getInstance(),
+                                DesktopIntegrationOverlay.getInstance());
+    PageManager.registerOverlay(DesktopIntegrationOverlay.getInstance(),
+                                BrowserOptions.getInstance(),
+                                [$('desktop-integration-button')]);
+   } catch (exc) {
+     console.log(exc)
+   }
+  }
   if (HandlerOptions && $('manage-handlers-button')) {
     PageManager.registerOverlay(HandlerOptions.getInstance(),
                                 ContentSettings.getInstance(),

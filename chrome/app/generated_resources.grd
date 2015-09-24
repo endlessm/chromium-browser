@@ -5176,6 +5176,35 @@ Keep your key file in a safe place. You will need it to create new versions of y
         Access denied.
       </message>
 
+      <!-- Desktop integration -->
+      <message name="IDS_PROMPT_INTEGRATION_ENABLE_BUTTON_LABEL" desc="The text to be displayed on the checkbox that enables desktop integration.">
+        Notify me when the website I am visiting can run as an application
+      </message>
+      <message name="IDS_DESKTOP_INTEGRATION_NOTE_DESCRIPTION" desc="The text to be displayed below the Exceptions button in the Integrated Websites section.">
+        Websites which have been installed can be removed, like any other application, using Ubuntu Software Center.
+      </message>
+      <message name="IDS_DESKTOP_INTEGRATION_SETTINGS_EXCEPTIONS_BUTTON_LABEL" desc="The text to be displayed on the button that drives integration exceptions.">
+        Exceptions...
+      </message>
+      <message name="IDS_DESKTOP_INTEGRATION_SETTINGS_OVERLAY_TITLE" desc="Title for the desktop integration overlay.">
+        Integration prompt exceptions
+      </message>
+      <message name="IDS_DESKTOP_INTEGRATION_SETTINGS_OVERLAY_DESCRIPTION" desc="Description for the desktop integration overlay.">
+        These websites won't prompt to be installed:
+      </message>
+      <message name="IDS_OPTIONS_SETTINGS_INTEGRATION_WEBSITE_ADD_BUTTON"
+               desc="The label for the add button for adding a integration websites">
+        Add
+      </message>
+      <message name="IDS_OPTIONS_SETTINGS_INTEGRATION_WEBSITE_ADD_TEXT"
+               desc="The description text for the add overlay for adding a integration websites">
+        Website host-name
+      </message>
+      <message name="IDS_OPTIONS_SETTINGS_INTEGRATION_WEBSITE_ADD_TITLE"
+               desc="Title for add overlay for adding a integration websites">
+        Add Integrated Website
+      </message>
+
       <!-- Global error messages for extensions -->
       <message name="IDS_EXTENSION_WARNINGS_WRENCH_MENU_ITEM" desc="The wrench menu item indicating that extensions caused problems.">
         Extension error
@@ -12427,6 +12456,9 @@ Some features may be unavailable.  Please check that the profile exists and you 
       </message>
       <message name="IDS_OPTIONS_ADVANCED_SECTION_TITLE_CONTENT">
         Web content
+      </message>
+      <message name="IDS_OPTIONS_ADVANCED_SECTION_TITLE_INTEGRATION">
+        Installed Websites
       </message>
       <message name="IDS_OPTIONS_ADVANCED_SECTION_TITLE_CERTIFICATES">
         HTTPS/SSL

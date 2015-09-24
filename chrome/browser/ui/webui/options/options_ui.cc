@@ -104,6 +104,10 @@
 #include "chrome/browser/ui/webui/options/geolocation_options_handler.h"
 #endif
 
+#if defined(OS_LINUX)
+#include "chrome/browser/ui/webui/options/desktop_integration_settings_handler.h"
+#endif
+
 using content::RenderViewHost;
 
 namespace {
@@ -278,6 +282,8 @@ OptionsUI::OptionsUI(content::WebUI* web_ui)
   AddOptionsPageUIHandler(localized_strings, new CookiesViewHandler());
   AddOptionsPageUIHandler(localized_strings, new CreateProfileHandler());
   AddOptionsPageUIHandler(localized_strings, new EasyUnlockHandler());
+  AddOptionsPageUIHandler(localized_strings,
+                          new DesktopIntegrationSettingsHandler());
   AddOptionsPageUIHandler(localized_strings, new FontSettingsHandler());
 #if defined(ENABLE_GOOGLE_NOW)
   AddOptionsPageUIHandler(localized_strings, new GeolocationOptionsHandler());
