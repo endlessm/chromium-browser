@@ -3126,9 +3126,6 @@
               '-Wno-deprecated',
             ],
             'cflags': [
-              # Don't warn about printf format problems.
-              # This is off by default in gcc but on in Ubuntu's gcc(!).
-              '-Wno-format',
             ],
             'cflags_cc!': [
               # Necessary because llvm.org/PR10448 is WONTFIX (crbug.com/90453).
